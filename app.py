@@ -17,7 +17,6 @@ TRADE_SUPPORTATI = [
     "IPBC", "RED SEA", "EAF", "MIDDLE EAST", "FAR EAST", "MEDITERRANEAN", "GENERIC"
 ]
 
-# Dizionario rigoroso per convertire le intestazioni complesse o celle unite nei nomi puliti delle città
 DIZIONARIO_PORTI_CONVERSIONE = {
     "GENOVA": "GENOVA", "LA SPEZIA": "LA SPEZIA", "CIVITAVECCHIA": "CIVITAVECCHIA",
     "NAPOLI": "NAPOLI", "SALERNO": "SALERNO", "GIOIA TAURO": "GIOIA TAURO",
@@ -31,7 +30,6 @@ DIZIONARIO_PORTI_CONVERSIONE = {
 }
 
 def normalizza_stringa_porto(valore_cella):
-    """Pulisce la stringa rimuovendo ritorni a capo ed eccessi di spazi"""
     testo = str(valore_cella).strip().replace("\n", " ")
     testo = " ".join(testo.split())
     testo_upper = testo.upper()
@@ -65,7 +63,6 @@ def salva_database(df):
 df_master = carica_database()
 
 st.title("🚢 Sistema Nazionale Tariffario Noli Marittimi")
-st.write("Console aziendale condivisa provvista di motori geometrici bidirezionali per l'analisi dei Trade di MSC.")
 
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
     "🔍 Ricerca Tariffe", 
@@ -120,7 +117,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: MULTI-PARSER COMPLETO PER MATRICI MSC IPBC / FAR EAST
+# TAB 2: MULTI-PARSER CON FILTRO RIGIDO .ILOC[0]
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -144,16 +141,14 @@ with tab_automatico:
                 lista_tariffe = []
                 riga_container_idx = None
                 
-                # Identifica la riga dei container scansionando il foglio Excel
                 for idx, row in raw_df.iterrows():
                     valori_testo = [str(v).strip().upper() for v in row.values if pd.notna(v)]
                     if any("20FT" in s or "20'" in s or "20DC" in s or "20" == s for s in valori_testo):
                         riga_container_idx = idx
                         break
                 
-                if riga_container_idx is None: riga_container_idx = 5  # Fallback per layout Far East
+                if riga_container_idx is None: riga_container_idx = 4
                 
-                # Lettura e propagazione delle intestazioni dei porti italiani/esteri sulla riga superiore
                 riga_porti_alta_raw = raw_df.iloc[riga_container_idx - 1].tolist()
                 riga_porti_alta_pulita = []
                 ultimo_porto_valido = "SCONOSCIUTO"
@@ -166,35 +161,31 @@ with tab_automatico:
                 
                 dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                 
-                for _, row in dati_prezzi.iterrows():
+                for idx, row in dati_prezzi.iterrows():
                     if len(row.values) == 0: continue
-                    cella_a_raw = row.values[0]
-                    if pd.isna(cella_a_raw) or str(cella_a_raw).strip() == "": continue
+                    # CORREZIONE CRITICA: Estrazione sicura della sola cella della colonna A tramite iloc[0]
+                    cella_a_pura = row.iloc[0]
+                    if pd.isna(cella_a_pura) or str(cella_a_pura).strip() == "": continue
                     
-                    testo_colonna_a = str(cella_a_raw).strip().upper()
-                    # Salta le note a pié di pagina o stringhe riassuntive
-                    if "ALL CARGO" in testo_colonna_a or "MANGALORE" in testo_colonna_a or "SUBJECT TO" in testo_colonna_a or "P.O.D." in testo_colonna_a:
+                    testo_colonna_a = str(cella_a_pura).strip().upper()
+                    if "ALL CARGO" in testo_colonna_a or "MANGALORE" in testo_colonna_a or "SUBJECT TO" in testo_colonna_a or "P.O.D." in testo_colonna_a or "CURRENCY" in testo_colonna_a:
                         continue
                     
                     for col_idx in range(1, len(row)):
-                        prezzo_raw = row.values[col_idx]
+                        prezzo_raw = row.iloc[col_idx]
                         try:
                             price = float(prezzo_raw)
                             if pd.isna(price) or price <= 0: continue
                         except:
                             continue
                         
-                        # Assegnazione alternata del tipo container basata sull'indice di colonna (Dispari = 20FT, Pari = 40FT)
                         container_std = "20FT" if (col_idx % 2 != 0) else "40FT"
                         
-                        # --- INTERFACCIA GEOMETRICA TRA TRADE DI EXPORT MARITTIMO ---
                         if trade_file in ["MIDDLE EAST", "FAR EAST"]:
-                            # Layout Orizzontale Export (MSC Far East: Colonna A = POD, Riga Alta = POL)
                             pol = riga_porti_alta_pulita[col_idx]
                             pod = testo_colonna_a
                         else:
-                            # Layout Verticale Standard (MSC IPBC / RED SEA: Colonna A = POL, Riga Alta = POD)
-                            pol = normalizza_stringa_porto(cella_a_raw)
+                            pol = normalizza_stringa_porto(cella_a_pura)
                             pod = riga_porti_alta_pulita[col_idx]
                         
                         if pol == "SCONOSCIUTO" or pod == "SCONOSCIUTO": continue
@@ -212,7 +203,7 @@ with tab_automatico:
                     df_pulito = df_master[(df_master["Compagnia"] != compagnia_file) | (df_master["Trade"] != trade_file)]
                     df_finale = pd.concat([df_pulito, df_nuovo], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata con successo! Caricati {len(df_nuovo)} noli base puri per {compagnia_file} - Trade {trade_file}.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} record commerciali per {compagnia_file} - Trade {trade_file}.")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo valido rilevato. Verifica la corrispondenza dei campi.")
