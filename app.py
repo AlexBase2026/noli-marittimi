@@ -14,14 +14,14 @@ COMPAGNIE_SUPPORTATE = [
 ]
 
 DIZIONARIO_PORTI = {
-    # Destinazioni Italiane (POD)
+    # Porti Italiani (Ora mappati come partenze EXPORT -> POL)
     "ITGOA": "GENOVA", "ITLIV": "LIVORNO", "ITSPE": "LA SPEZIA", "ITVCE": "VENEZIA", 
     "ITNAP": "NAPOLI", "ITAO1": "ANCONA", "ITSGK": "TRIESTE", "ITCTA": "CATANIA", 
     "ITPMO": "PALERMO", "ITBLA": "CAGLIARI", "ITSAL": "SALERNO", "ITTRS": "TRIESTE",
     "GENOVA": "GENOVA", "LIVORNO": "LIVORNO", "LA SPEZIA": "LA SPEZIA", 
     "VENEZIA": "VENEZIA", "NAPOLI": "NAPOLI", "ANCONA": "ANCONA", "TRIESTE": "TRIESTE",
     
-    # Partenze Far East / India (POL)
+    # Destinazioni Estere (Ora mappate come arrivi EXPORT -> POD)
     "SHANGHAI": "SHANGHAI", "NINGBO": "NINGBO", "YANTIAN": "YANTIAN", "SHEKOU": "SHEKOU", 
     "QINGDAO": "QINGDAO", "XIAMEN": "XIAMEN", "XINGANG": "XINGANG", "NANSHA": "NANSHA", 
     "CHIWAN": "CHIWAN", "BUSAN": "BUSAN", "SINGAPORE": "SINGAPORE", "PORT KELANG": "PORT KELANG", 
@@ -139,7 +139,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: CORREZIONE MAPPA DELLE CELLE UNITE PER ORIZZONTALI (YML)
+# TAB 2: PARSER CON INVERSIONE EXPORT PER ORIZZONTALI (YML)
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -160,7 +160,7 @@ with tab_automatico:
             if st.button("Estrai Solo Noli Base"):
                 lista_tariffe = []
                 
-                # --- PARSER LAYOUT 2: GRIGLIE ORIZZONTALI (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK) ---
+                # --- PARSER LAYOUT 2: MATRICI ORIZZONTALI EXPORT (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK) ---
                 if compagnia_file in ["CMA", "COSCO", "EVERGREEN", "MAERSK", "ONE", "YML"]:
                     riga_container_idx = None
                     for idx, row in raw_df.iterrows():
@@ -172,16 +172,16 @@ with tab_automatico:
                     if riga_container_idx is None:
                         riga_container_idx = 2
                     
-                    # 1. Recupero e riempimento automatico in avanti delle celle unite dei POD (riga superiore)
-                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].tolist()
-                    riga_pod_pulita = []
-                    ultimo_pod_valido = "SCONOSCIUTO"
+                    # Lettura dei porti in alto sulla riga sdoppiata (Celle unite ffill)
+                    riga_input_raw = raw_df.iloc[riga_container_idx - 1].tolist()
+                    riga_porti_alta = []
+                    ultimo_porto_valido = "SCONOSCIUTO"
                     
-                    for v in riga_pod_raw:
+                    for v in riga_input_raw:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
-                            ultimo_pod_valido = normalizza_nome_porto(v)
-                        riga_pod_pulita.append(ultimo_pod_valido)
+                            ultimo_porto_valido = normalizza_nome_porto(v)
+                        riga_porti_alta.append(ultimo_porto_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
@@ -191,9 +191,10 @@ with tab_automatico:
                         pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        # Corretto: Il porto estero di partenza in verticale è il POL
-                        pol = normalizza_nome_porto(pol_cella)
-                        if pol in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
+                        # CORREZIONE LOGICA EXPORT:
+                        # In YML la colonna verticale è la destinazione estera (POD)
+                        pod = normalizza_nome_porto(pol_cella)
+                        if pod in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
                             continue
                         
                         for col_idx in range(1, len(row)):
@@ -204,8 +205,9 @@ with tab_automatico:
                             except:
                                 continue
                             
-                            # Corretto: Associa il POD unito riempito in avanti per la colonna corrente
-                            pod = riga_pod_pulita[col_idx]
+                            # CORREZIONE LOGICA EXPORT:
+                            # In YML la riga in alto contiene i porti italiani di partenza (POL)
+                            pol = riga_porti_alta[col_idx]
                             tipo_c_raw = riga_cont_pulita[col_idx]
                             
                             if "20" in tipo_c_raw:
@@ -220,7 +222,7 @@ with tab_automatico:
                                 "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
                                 "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
                                 "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
-                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da layout YML", "Origine": "Automatico"
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da layout YML Export", "Origine": "Automatico"
                             })
                             
                 # --- PARSER LAYOUT 1: STRUTTURA VERTICALE STANDARD (MSC, HAPAG, ECC.) ---
@@ -252,7 +254,6 @@ with tab_automatico:
                         pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        # In MSC il porto di imbarco italiano in verticale è il POL
                         pol = normalizza_nome_porto(pol_cella)
                         if pol in ["", "CURRENCY", "PORT", "MANGALORE", "SCONOSCIUTO"]:
                             continue
@@ -283,14 +284,16 @@ with tab_automatico:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} record commerciali stabili.")
+                    st.success(f"Estrazione completata! Mappati i flussi Export correttamente.")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
         except Exception as e:
             st.error(f"Errore tecnico: {e}")
 
-# (I TAB 3, 4 e 5 rimangono attivi per gestione costi e manutenzione database)
+# ==========================================
+# TAB 3: GESTIONE SPESE PORTO MOLTIPLICATORI
+# ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese per Porto")
     if not df_master.empty:
