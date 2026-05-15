@@ -4,7 +4,6 @@ import os
 
 st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_icon="🚢")
 
-# Nuovo file database per ospitare i campi valuta aggiornati
 DB_FILE = "database_noli_msc_valute.csv"
 
 def carica_database():
@@ -64,14 +63,12 @@ with tab_ricerca:
         if not risultati.empty:
             st.success("Tariffe individuate:")
             
-            # Formattazione personalizzata per mostrare i simboli corretti riga per riga
             tabella_visiva = []
             for _, r in risultati.iterrows():
                 sym_nolo = "$" if r["Valuta_Nolo"] == "USD" else "€"
                 sym_add = "$" if r["Valuta_Addizionali"] == "USD" else "€"
                 sym_imb = "$" if r["Valuta_Spese_Imbarco"] == "USD" else "€"
                 
-                # Se le valute coincidono calcola il totale nolo combinato, altrimenti mostra avviso
                 if r["Valuta_Nolo"] == r["Valuta_Addizionali"]:
                     totale_str = f"{sym_nolo} {r['Totale_Nolo']:.2f}"
                 else:
@@ -93,17 +90,16 @@ with tab_ricerca:
             
             st.dataframe(pd.DataFrame(tabella_visiva), use_container_width=True)
         else:
-            st.warning("Nessuna tariffa corrispondente trovata.")
+            st.warning("Nessuna tariffa corrispondente trouvata.")
 
 # ==========================================
-# TAB 2: CARICAMENTO MATRICE CON SELEZIONE VALUTA
+# TAB 2: CARICAMENTO MATRICE (CORRETTO)
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Automatica Noli Base da Matrice")
     compagnia_file = st.selectbox("Compagnia Marittima", ["MSC", "CMA", "HAPAG"])
     validita_foglio = st.text_input("Validità Temporale Foglio", "01/05/2026-31/05/2026", key="val_auto")
     
-    # NUOVO CAMPO: Scelta valuta nolo della griglia
     valuta_matrice = st.radio("Seleziona la valuta dei noli base della griglia Excel:", ["USD ($)", "EUR (€)"], horizontal=True)
     valuta_matrice_std = "USD" if "USD" in valuta_matrice else "EUR"
     
@@ -138,9 +134,11 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 for _, row in dati_prezzi.iterrows():
-                    pol_raw = row.values[0]
-                    if pd.isna(pol_raw):
+                    # CORREZIONE 1: Estrazione sicura del valore della prima cella (POL)
+                    pol_raw = row.values[0] if len(row.values) > 0 else None
+                    if pd.isna(pol_raw) or pol_raw is None:
                         continue
+                    
                     pol = str(pol_raw).strip().upper()
                     if pol == "" or "CURRENCY" in pol or "MSC" in pol or "PORT" in pol or "MANGALORE" in pol or "ALL ABOVE" in pol:
                         continue
@@ -158,8 +156,9 @@ with tab_automatico:
                         tipo_c_raw = riga_cont_pulita[col_idx]
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
+                        # CORREZIONE 2: Aggiunto [0] per estrarre la stringa prima del comando .strip()
                         if "(" in pod:
-                            pod = pod.split("(").strip()
+                            pod = pod.split("(")[0].strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
@@ -181,7 +180,7 @@ with tab_automatico:
             st.error(f"Errore durante l'estrazione: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO MULTI-VALUTA
+# TAB 3: GESTIONE SPESE PORTO
 # ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese Specifiche MSC per Porto e Scelta Valute")
@@ -194,28 +193,22 @@ with tab_spese_porto:
         col_an1, col_an2, col_an3 = st.columns(3)
         with col_an1:
             st.subheader("🏢 Spese Imbarco Locali")
-            # NUOVO SELETTORE VALUTA SPESE IMBARCO
             curr_imb = st.radio("Valuta Spese Imbarco:", ["EUR (€)", "USD ($)"], key="c_imb", horizontal=True)
             curr_imb_std = "EUR" if "EUR" in curr_imb else "USD"
-            
             v_thc = st.number_input("THC", min_value=0.0, step=5.0)
             v_isps = st.number_input("ISPS", min_value=0.0, step=1.0)
             v_lilo = st.number_input("LILO", min_value=0.0, step=5.0)
             totale_imb_calcolato = v_thc + v_isps + v_lilo
-            
         with col_an2:
             st.subheader("📈 Surcharges / Addizionali")
-            # NUOVO SELETTORE VALUTA ADDIZIONALI
             curr_add = st.radio("Valuta Addizionali / Surcharges:", ["USD ($)", "EUR (€)"], key="c_add", horizontal=True)
             curr_add_std = "USD" if "USD" in curr_add else "EUR"
-            
             v_efs = st.number_input("EFS", min_value=0.0, step=5.0)
             v_brc = st.number_input("BRC", min_value=0.0, step=5.0)
             v_eca = st.number_input("ECA", min_value=0.0, step=5.0)
             v_ets = st.number_input("ETS", min_value=0.0, step=1.0)
             v_feu = st.number_input("FEU", min_value=0.0, step=5.0)
             totale_add_calcolato = v_efs + v_brc + v_eca + v_ets + v_feu
-            
         with col_an3:
             st.subheader("📄 Costo Spese Documentali (Sempre EUR)")
             v_bl = st.number_input("Costo Documento BL (€)", min_value=0.0, step=5.0)
@@ -245,20 +238,16 @@ with tab_spese_porto:
                 df_modificato.loc[condizione, "Spese_Imbarco"] = totale_imb_calcolato
                 df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = str(testo_imb)
                 df_modificato.loc[condizione, "Valuta_Spese_Imbarco"] = curr_imb_std
-                
                 df_modificato.loc[condizione, "Addizionali"] = totale_add_calcolato
                 df_modificato.loc[condizione, "Descrizione_Addizionali"] = str(testo_add)
                 df_modificato.loc[condizione, "Valuta_Addizionali"] = curr_add_std
-                
                 df_modificato.loc[condizione, "BL"] = v_bl
                 df_modificato.loc[condizione, "Free_Time"] = str(val_free_time)
                 df_modificato.loc[condizione, "Note"] = str(val_note_libere)
-                
-                # Il Totale Nolo viene sommato solo se la valuta del nolo base coincide con le surcharges
                 df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + totale_add_calcolato
                 
                 salva_database(df_modificato)
-                st.success(f"Porto di {pol_selezionato_spese} configurato assegnando le rispettive valute!")
+                st.success(f"Porto di {pol_selezionato_spese} configurato!")
                 st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
@@ -310,15 +299,12 @@ with tab_manuale_singolo:
                     "POL": man_pol, "POD": man_pod, "Compagnia": man_carrier, "Container": man_container,
                     "Nolo": man_nolo, "Valuta_Nolo": man_v_nolo, "Addizionali": tot_add_sin, "Valuta_Addizionali": man_v_add, "Descrizione_Addizionali": str(testo_add_sin),
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
-                    "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
+                    "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manual"
                 }])
                 salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
                 st.success("Tariffa spot salvata!")
                 st.rerun()
 
-# ==========================================
-# TAB 5: ARCHIVIO E MANUTENZIONE DATABASE
-# ==========================================
 with tab_database:
     st.header("Visualizzazione Tabellare di Controllo")
     st.dataframe(df_master, use_container_width=True)
