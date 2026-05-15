@@ -6,13 +6,71 @@ st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_i
 
 DB_FILE = "database_noli_analitico_valute.csv"
 
-# Lista unificata e standardizzata di tutte le 23 compagnie marittime richieste
 COMPAGNIE_SUPPORTATE = [
     "MSC", "CMA", "HAPAG", "MAERSK", "EVERGREEN", "MESSINA", "GRIMALDI", 
     "COSCO", "YML", "ONE", "AKKON", "ARKAS", "TARROS", "HMM", "OOCL", 
     "SAHEL", "SCI LINE", "ZIM", "COSIARMA", "MARFRET", "BORCHARD", 
     "COTUNAV", "MAGUISA"
 ]
+
+# Dizionario centralizzato per convertire sigle e codici nei nomi estesi delle città
+DIZIONARIO_PORTI = {
+    # Destinazioni Italiane (POD)
+    "ITGOA": "GENOVA",
+    "ITLIV": "LIVORNO",
+    "ITSPE": "LA SPEZIA",
+    "ITVCE": "VENEZIA",
+    "ITNAP": "NAPOLI",
+    "ITAO1": "ANCONA",
+    "ITSGK": "TRIESTE",
+    "ITCTA": "CATANIA",
+    "ITPMO": "PALERMO",
+    "ITBLA": "CAGLIARI",
+    "ITSAL": "SALERNO",
+    "ITTRS": "TRIESTE",
+    
+    # Partenze Far East / India (POL)
+    "SHANGHAI": "SHANGHAI",
+    "NINGBO": "NINGBO",
+    "YANTIAN": "YANTIAN",
+    "SHEKOU": "SHEKOU",
+    "QINGDAO": "QINGDAO",
+    "XIAMEN": "XIAMEN",
+    "XINGANG": "XINGANG",
+    "NANSHA": "NANSHA",
+    "CHIWAN": "CHIWAN",
+    "BUSAN": "BUSAN",
+    "SINGAPORE": "SINGAPORE",
+    "PORT KELANG": "PORT KELANG",
+    "NHAVA SHEVA": "NHAVA SHEVA",
+    "MUNDRA": "MUNDRA",
+    "COLOMBO": "COLOMBO",
+    "CHENNAI": "CHENNAI"
+}
+
+def normalizza_nome_porto(porto_raw):
+    """Pulisce la stringa e sostituisce codici/sigle con il nome esteso della città"""
+    testo = str(porto_raw).strip().upper()
+    if not testo or testo == "NAN":
+        return "SCONOSCIUTO"
+    
+    # Se il testo contiene spazi, prendiamo la prima parola (es. 'ITGOA by MD2' -> 'ITGOA')
+    parole = testo.split()
+    codice_chiave = parole[0] if len(parole) > 0 else testo
+    
+    # Rimuove eventuali trattini o caratteri spuri per la verifica
+    codice_chiave = codice_chiave.replace("-", "").replace("'", "")
+    
+    # Controlla la corrispondenza nel dizionario geografico
+    if codice_chiave in DIZIONARIO_PORTI:
+        return DIZIONARIO_PORTI[codice_chiave]
+        
+    # Controllo secondario se il porto estero è scritto per intero ma ha note (es. 'SHANGHAI NEW PORT' -> 'SHANGHAI')
+    for chiave, valore in DIZIONARIO_PORTI.items():
+        if chiave in testo:
+            return valore
+            
+    return codice_chiave
 
 def carica_database():
     if os.path.exists(DB_FILE):
@@ -39,8 +97,8 @@ def salva_database(df):
 
 df_master = carica_database()
 
-st.title("🚢 Sistema Centralizzato Noli Marittimi Multi-Carrier")
-st.write("Software aziendale condiviso per la gestione analitica delle quotazioni delle principali compagnie di navigazione.")
+st.title("🚢 Sistema Multi-Parser Noli Marittimi con Geocodifica")
+st.write("Software aziendale con conversione automatica delle sigle doganali nei nomi estesi delle città (es. ITGOA ➡️ GENOVA).")
 
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
     "🔍 Ricerca Tariffe", 
@@ -87,6 +145,8 @@ with tab_ricerca:
                 
                 tabella_visiva.append({
                     "Compagnia": r["Compagnia"],
+                    "POL (Partenza)": r["POL"],
+                    "POD (Destinazione)": r["POD"],
                     "Nolo Base": f"{sym_nolo} {r['Nolo']:.2f}",
                     "Totale Addizionali": f"{sym_add} {r['Addizionali']:.2f}",
                     "Dettaglio Addizionali": r["Descrizione_Addizionali"],
@@ -104,96 +164,154 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: CARICAMENTO MATRICE EXCEL MULTI-CARRIER
+# TAB 2: ARCHITETTURA MULTI-PARSER CON GEOCODIFICA
 # ==========================================
 with tab_automatico:
-    st.header("Estrazione Automatica Noli Base da Matrice Excel")
+    st.header("Estrazione Intelligente con Parser Dedicati")
     
-    # Aggiornato con l'elenco completo delle 23 compagnie
-    compagnia_file = st.selectbox("Seleziona la Compagnia del listino Excel", COMPAGNIE_SUPPORTATE, key="comp_auto")
+    compagnia_file = st.selectbox("Seleziona il Vettore del listino", COMPAGNIE_SUPPORTATE, key="comp_auto")
     validita_foglio = st.text_input("Validità Temporale Foglio", "01/05/2026-31/05/2026", key="val_auto")
     
     valuta_matrice = st.radio("Seleziona la valuta dei noli base della griglia Excel:", ["USD ($)", "EUR (€)"], horizontal=True)
     valuta_matrice_std = "USD" if "USD" in valuta_matrice else "EUR"
     
-    file_caricato = st.file_uploader("Trascina il file Excel (.xlsx)", type=["xlsx", "xls"])
+    file_caricato = st.file_uploader("Trascina il file Excel della compagnia", type=["xlsx", "xls"])
     
     if file_caricato is not None:
         try:
             raw_df = pd.read_excel(file_caricato, header=None)
-            st.success("File caricato correttamente.")
+            st.success("File Excel caricato correttamente in memoria.")
             
             if st.button("Estrai Solo Noli Base"):
-                riga_container_idx = None
-                for idx, row in raw_df.iterrows():
-                    valori_testo = [str(v).strip() for v in row.values if pd.notna(v)]
-                    if any("20" in s for s in valori_testo) and any("40" in s for s in valori_testo):
-                        riga_container_idx = idx
-                        break
-                
-                if riga_container_idx is None:
-                    riga_container_idx = 2
-                
-                riga_pod_raw = raw_df.iloc[riga_container_idx - 1].copy()
-                riga_pod_pulita = []
-                ultimo_pod_valido = "SCONOSCIUTO"
-                for v in riga_pod_raw:
-                    if pd.notna(v) and str(v).strip() != "" and "ITALY" not in str(v).upper() and "CURRENCY" not in str(v).upper():
-                        ultimo_pod_valido = str(v).strip().upper()
-                    riga_pod_pulita.append(ultimo_pod_valido)
-                
-                riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
-                dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                 lista_tariffe = []
                 
-                for _, row in dati_prezzi.iterrows():
-                    if len(row.values) == 0:
-                        continue
-                    pol_raw = row.values[0]
-                    if pd.isna(pol_raw) or pol_raw is None:
-                        continue
+                # --------------------------------------------------------
+                # PARSER LAYOUT 2: STRUTTURA INVERTITA (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK)
+                # --------------------------------------------------------
+                if compagnia_file in ["CMA", "COSCO", "EVERGREEN", "MAERSK", "ONE", "YML"]:
+                    riga_container_idx = None
+                    for idx, row in raw_df.iterrows():
+                        valori_testo = [str(v).strip().upper() for v in row.values if pd.notna(v)]
+                        if any("20DC" in s or "20FT" in s or "20GP" in s or "20'DC" in s for s in valori_testo):
+                            riga_container_idx = idx
+                            break
                     
-                    pol = str(pol_raw).strip().upper()
-                    if pol == "" or "CURRENCY" in pol or "PORT" in pol or "MANGALORE" in pol or "ALL ABOVE" in pol:
-                        continue
+                    if riga_container_idx is None:
+                        riga_container_idx = 2
                     
-                    for col_idx in range(1, len(row)):
-                        prezzo_raw = row.values[col_idx]
-                        try:
-                            prezzo = float(prezzo_raw)
-                            if pd.isna(prezzo) or prezzo <= 0:
-                                continue
-                        except:
+                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].copy()
+                    riga_pod_pulita = []
+                    
+                    for v in riga_pod_raw:
+                        # Richiama la funzione di conversione automatica per il POD in colonna
+                        pod_tradotto = normalizza_nome_porto(v)
+                        riga_pod_pulita.append(pod_tradotto)
+                    
+                    riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
+                    dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
+                    
+                    for _, row in dati_prezzi.iterrows():
+                        if len(row.values) == 0: continue
+                        pol_raw = row.values
+                        if pd.isna(pol_raw) or str(pol_raw).strip() == "": continue
+                        
+                        # Richiama la funzione di conversione automatica per il POL in riga
+                        pol = normalizza_nome_porto(pol_raw)
+                        if pol in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
                             continue
                         
-                        pod = riga_pod_pulita[col_idx]
-                        tipo_c_raw = riga_cont_pulita[col_idx]
-                        tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
-                        
-                        if "(" in pod:
-                            pod = pod.split("(")[0].strip()
+                        for col_idx in range(1, len(row)):
+                            prezzo_raw = row.values[col_idx]
+                            try:
+                                prezzo = float(prezzo_raw)
+                                if pd.isna(prezzo) or prezzo <= 0: continue
+                            except:
+                                continue
                             
-                        for container_std in tipi_da_generare:
+                            pod = riga_pod_pulita[col_idx]
+                            tipo_c_raw = riga_cont_pulita[col_idx]
+                            
+                            if "20" in tipo_c_raw:
+                                container_std = "20FT"
+                            elif "HQ" in tipo_c_raw or "HC" in tipo_c_raw or "40HQ" in tipo_c_raw or "40HC" in tipo_c_raw:
+                                container_std = "40HC"
+                            else:
+                                container_std = "40FT"
+                                
                             lista_tariffe.append({
                                 "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Container": container_std,
                                 "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
                                 "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
                                 "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
-                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da matrice {compagnia_file}", "Origine": "Automatico"
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da layout invertito {compagnia_file}", "Origine": "Automatico"
                             })
+                            
+                # --------------------------------------------------------
+                # PARSER LAYOUT 1: STRUTTURA STANDARD (MSC, HAPAG, MESSINA, ECC.)
+                # --------------------------------------------------------
+                else:
+                    riga_container_idx = None
+                    for idx, row in raw_df.iterrows():
+                        valori_testo = [str(v).strip() for v in row.values if pd.notna(v)]
+                        if any("20" in s for s in valori_testo) and any("40" in s for s in valori_testo):
+                            riga_container_idx = idx
+                            break
+                    
+                    if riga_container_idx is None: riga_container_idx = 2
+                    
+                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].copy()
+                    riga_pod_pulita = []
+                    for v in riga_pod_raw:
+                        pod_tradotto = normalizza_nome_porto(v)
+                        riga_pod_pulita.append(pod_tradotto)
+                    
+                    riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
+                    dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
+                    
+                    for _, row in dati_prezzi.iterrows():
+                        if len(row.values) == 0: continue
+                        pol_raw = row.values
+                        if pd.isna(pol_raw): continue
+                        
+                        pol = normalizer = normalizza_nome_porto(pol_raw)
+                        if pol in ["", "CURRENCY", "PORT", "MANGALORE", "SCONOSCIUTO"]:
+                            continue
+                        
+                        for col_idx in range(1, len(row)):
+                            prezzo_raw = row.values[col_idx]
+                            try:
+                                prezzo = float(prezzo_raw)
+                                if pd.isna(prezzo) or prezzo <= 0: continue
+                            except:
+                                continue
+                            
+                            pod = riga_pod_pulita[col_idx]
+                            tipo_c_raw = riga_cont_pulita[col_idx]
+                            tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
+                            
+                            for container_std in tipi_da_generare:
+                                lista_tariffe.append({
+                                    "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Container": container_std,
+                                    "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
+                                    "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
+                                    "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
+                                    "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da layout standard {compagnia_file}", "Origine": "Automatico"
+                                })
                 
                 df_nuovo_standard = pd.DataFrame(lista_tariffe)
                 if not df_nuovo_standard.empty:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} noli base puri per {compagnia_file}.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} noli con nomi porti tradotti in italiano per {compagnia_file}.")
                     st.rerun()
+                else:
+                    st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
         except Exception as e:
-            st.error(f"Errore durante l'estrazione: {e}")
+            st.error(f"Errore tecnico durante la decodifica del Parser: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO MULTI-CARRIER
+# TAB 3: GESTIONE SPESE PORTO MOLTIPLICATORI
 # ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
@@ -210,7 +328,6 @@ with tab_spese_porto:
             v_thc = st.number_input("THC (base 20FT)", min_value=0.0, step=5.0)
             v_isps = st.number_input("ISPS (base 20FT)", min_value=0.0, step=1.0)
             v_lilo = st.number_input("LILO (base 20FT)", min_value=0.0, step=5.0)
-            
             totale_imb_calcolato = v_thc + v_isps + v_lilo
             st.write(" ")
             st.metric("Totale Imbarco (20FT / 40FT / 40HC)", f"{curr_imb_std} {totale_imb_calcolato:.2f}")
@@ -224,7 +341,6 @@ with tab_spese_porto:
             v_eca = st.number_input("ECA (base 20FT)", min_value=0.0, step=5.0)
             v_ets = st.number_input("ETS (base 20FT)", min_value=0.0, step=1.0)
             v_feu = st.number_input("FEU (base 20FT)", min_value=0.0, step=5.0)
-            
             totale_add_calcolato = v_efs + v_brc + v_eca + v_ets + v_feu
             st.write(" ")
             st.metric("Totale Addizionali 20FT", f"{curr_add_std} {totale_add_calcolato:.2f}")
@@ -271,13 +387,13 @@ with tab_spese_porto:
                     df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
             
             salva_database(df_modificato)
-            st.success("Database aggiornato applicando i totali con i corretti moltiplicatori!")
+            st.success("Database aggiornato applicando i totali!")
             st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
 
 # ==========================================
-# TAB 4: INSERIMENTO MANUALE CON SUPPORTO COMPAGNIE ESTESO
+# TAB 4: INSERIMENTO MANUALE SPOT
 # ==========================================
 with tab_manuale_singolo:
     st.header("➕ Inserimento Manuale Singola Tariffa Spot Scomposta")
@@ -285,7 +401,6 @@ with tab_manuale_singolo:
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
             man_pol = st.text_input("Porto POL (Partenza)").upper().strip()
-            # Utilizza il menu a tendina con l'elenco completo per l'inserimento manuale
             man_carrier = st.selectbox("Seleziona Compagnia", COMPAGNIE_SUPPORTATE, key="comp_man")
             man_nolo = st.number_input("Nolo Base", min_value=0.0, step=50.0)
             man_v_nolo = st.selectbox("Valuta Nolo Base", ["USD", "EUR"])
@@ -320,14 +435,18 @@ with tab_manuale_singolo:
                 testo_add_sin = f"EFS:{man_efs} BRC:{man_brc} ECA:{man_eca} ETS:{man_ets} FEU:{man_feu}"
                 testo_imb_sin = f"THC:{man_thc} | ISPS:{man_isps} | LILO:{man_lilo}"
                 
+                # Applica la normalizzazione anche per gli inserimenti manuali per sicurezza
+                pol_std = normalizza_nome_porto(man_pol)
+                pod_std = normalizza_nome_porto(man_pod)
+                
                 nuova_riga = pd.DataFrame([{
-                    "POL": man_pol, "POD": man_pod, "Compagnia": man_carrier, "Container": man_container,
+                    "POL": pol_std, "POD": pod_std, "Compagnia": man_carrier, "Container": man_container,
                     "Nolo": man_nolo, "Valuta_Nolo": man_v_nolo, "Addizionali": tot_add_sin, "Valuta_Addizionali": man_v_add, "Descrizione_Addizionali": str(testo_add_sin),
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
                 salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
-                st.success(f"Tariffa spot per {man_carrier} salvata correttamente!")
+                st.success("Tariffa spot salvata correttamente!")
                 st.rerun()
 
 with tab_database:
