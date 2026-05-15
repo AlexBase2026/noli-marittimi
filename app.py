@@ -5,14 +5,20 @@ import os
 # Configurazione iniziale dell'interfaccia web aziendale
 st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_icon="🚢")
 
-DB_FILE = "database_noli_msc_specifico.csv"
+# Cambiamo nome al file per forzare la rigenerazione corretta della struttura dati senza conflitti vecchi
+DB_FILE = "database_noli_msc_final.csv"
 
 def carica_database():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
-        df['Validità'] = df['Validità'].astype(str).fillna("")
-        for col in ["Nolo", "Addizionali", "Totale_Nolo", "Spese_Imbarco", "BL"]:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+        # Forza le colonne di testo ad essere stringhe
+        for col_testo in ["POL", "POD", "Compagnia", "Container", "Descrizione_Addizionali", "Descrizione_Spese_Imbarco", "Free_Time", "Validità", "Note", "Origine"]:
+            if col_testo in df.columns:
+                df[col_testo] = df[col_testo].astype(str).replace("nan", "")
+        # Forza le colonne numeriche
+        for col_num in ["Nolo", "Addizionali", "Totale_Nolo", "Spese_Imbarco", "BL"]:
+            if col_num in df.columns:
+                df[col_num] = pd.to_numeric(df[col_num], errors='coerce').fillna(0.0)
         return df
     else:
         return pd.DataFrame(columns=[
@@ -46,10 +52,10 @@ with tab_ricerca:
     col1, col2, col3 = st.columns(3)
     with col1:
         elenco_pol = sorted(df_master["POL"].dropna().unique()) if not df_master.empty else []
-        pol_scelto = st.selectbox("Porto di Partenza (POL)", [""] + list(elenco_pol))
+        pol_scelto = st.selectbox("Porto di Partenza (POL)", [""] + [p for p in elenco_pol if p != ""])
     with col2:
         elenco_pod = sorted(df_master["POD"].dropna().unique()) if not df_master.empty else []
-        pod_scelto = st.selectbox("Porto di Destinazione (POD)", [""] + list(elenco_pod))
+        pod_scelto = st.selectbox("Porto di Destinazione (POD)", [""] + [p for p in elenco_pod if p != ""])
     with col3:
         tipo_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"])
         
@@ -76,7 +82,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: CARICAMENTO ESCLUSIVO DEI NOLI BASE (CORRETTO)
+# TAB 2: CARICAMENTO ESCLUSIVO DEI NOLI BASE
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Automatica Noli Base da Matrice")
@@ -113,7 +119,7 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 for _, row in dati_prezzi.iterrows():
-                    pol_raw = row.iloc[0] # Estrae la singola cella del porto POL alla colonna 0
+                    pol_raw = row.iloc
                     if pd.isna(pol_raw):
                         continue
                     pol = str(pol_raw).strip().upper()
@@ -134,7 +140,7 @@ with tab_automatico:
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
                         if "(" in pod:
-                            pod = pod.split("(")[0].strip()
+                            pod = pod.split("(").strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
@@ -160,7 +166,7 @@ with tab_automatico:
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese Specifiche MSC per Porto")
     if not df_master.empty:
-        lista_pol_esistenti = sorted(df_master["POL"].unique())
+        lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != ""]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
         container_selezionato_spese = st.selectbox("Applica al tipo container", ["20FT", "40FT", "40HC", "TUTTI"])
         
@@ -191,6 +197,11 @@ with tab_spese_porto:
             
         if st.button(f"Calcola e Applica a tutte le rotte di {pol_selezionato_spese}"):
             df_modificato = df_master.copy()
+            
+            # Convertiamo esplicitamente le colonne del DataFrame a stringa prima di salvarle
+            for c_txt in ["Descrizione_Spese_Imbarco", "Descrizione_Addizionali", "Free_Time", "Note"]:
+                df_modificato[c_txt] = df_modificato[c_txt].astype(str)
+                
             condizione = (df_modificato["POL"] == pol_selezionato_spese)
             if container_selezionato_spese != "TUTTI":
                 condizione = condizione & (df_modificato["Container"] == container_selezionato_spese)
@@ -206,16 +217,16 @@ with tab_spese_porto:
                 testo_add = " | ".join(lista_add_descr) if lista_add_descr else "Nessuna surcharge"
                 
                 df_modificato.loc[condizione, "Spese_Imbarco"] = totale_imb_calcolato
-                df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = testo_imb
+                df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = str(testo_imb)
                 df_modificato.loc[condizione, "Addizionali"] = totale_add_calcolato
-                df_modificato.loc[condizione, "Descrizione_Addizionali"] = testo_add
+                df_modificato.loc[condizione, "Descrizione_Addizionali"] = str(testo_add)
                 df_modificato.loc[condizione, "BL"] = v_bl
-                df_modificato.loc[condizione, "Free_Time"] = val_free_time
-                df_modificato.loc[condizione, "Note"] = val_note_libere
+                df_modificato.loc[condizione, "Free_Time"] = str(val_free_time)
+                df_modificato.loc[condizione, "Note"] = str(val_note_libere)
                 df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + totale_add_calcolato
                 
                 salva_database(df_modificato)
-                st.success(f"Porto di {pol_selezionato_spese} configurato!")
+                st.success(f"Porto di {pol_selezionato_spese} configurato con successo!")
                 st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
@@ -262,9 +273,9 @@ with tab_manuale_singolo:
                 
                 nuova_riga = pd.DataFrame([{
                     "POL": man_pol, "POD": man_pod, "Compagnia": man_carrier, "Container": man_container,
-                    "Nolo": man_nolo, "Addizionali": tot_add_sin, "Descrizione_Addizionali": testo_add_sin,
-                    "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Descrizione_Spese_Imbarco": testo_imb_sin,
-                    "BL": man_bl, "Free_Time": man_freetime, "Validità": man_validita, "Note": man_note, "Origine": "Manuale"
+                    "Nolo": man_nolo, "Addizionali": tot_add_sin, "Descrizione_Addizionali": str(testo_add_sin),
+                    "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
+                    "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
                 salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
                 st.success("Tariffa spot salvata!")
