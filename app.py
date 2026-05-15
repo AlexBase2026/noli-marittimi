@@ -17,6 +17,36 @@ TRADE_SUPPORTATI = [
     "IPBC", "RED SEA", "EAF", "MIDDLE EAST", "FAR EAST", "MEDITERRANEAN", "GENERIC"
 ]
 
+# RIPRISTINATO E POTENZIATO: Dizionario per pulire le celle unite di MSC (sia sigle che stringhe lunghe Middle East)
+DIZIONARIO_PORTI_FISSI = {
+    "ITGOA": "GENOVA", 
+    "ITLIV": "LIVORNO", 
+    "ITSPE": "LA SPEZIA", 
+    "ITVCE": "VENEZIA", 
+    "ITNAP": "NAPOLI", 
+    "ITAO1": "ANCONA",
+    "GENOVA, LA SPEZIA, TRIESTE, AND GIOIA TAURO": "GENOVA",
+    "VENEZIA, RAVENNA, ANCONA": "VENEZIA",
+    "NAPOLI/SALERNO (VIA NOLO)": "NAPOLI",
+    "BARI, CIVITAVECCHIA, PALERMO, TRAPANI, POZZALLO, AUGUSTA & TERMINI IMERESE": "BARI",
+    "CAGLIARI": "CAGLIARI"
+}
+
+def normalizza_porto_msc(valore_cella):
+    """Mantiene il testo del porto esattamente come scritto nel listino, applicando le conversioni fisse"""
+    testo = str(valore_cella).strip().replace("\n", " ")
+    if not testo or testo.upper() in ["NAN", "NONE", "", "0", "0.0"]:
+        return "SCONOSCIUTO"
+    
+    testo = " ".join(testo.split())
+    testo_upper = testo.upper()
+    
+    # Controlla se la stringa intera (o la sigla) è presente nel nostro dizionario di conversione
+    if testo_upper in DIZIONARIO_PORTI_FISSI:
+        return DIZIONARIO_PORTI_FISSI[testo_upper]
+        
+    return testo
+
 def carica_database():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
@@ -74,7 +104,7 @@ with tab_ricerca:
     if pol_scelto and pod_scelto:
         condizione_ricerca = (df_master["POL"] == pol_scelto) & (df_master["POD"] == pod_scelto) & (df_master["Container"] == tipo_container)
         if trade_scelto != "TUTTI":
-            condizione_ricerca = condition_ricerca = condizione_ricerca & (df_master["Trade"] == trade_scelto)
+            condizione_ricerca = condizione_ricerca & (df_master["Trade"] == trade_scelto)
             
         risultati = df_master[condizione_ricerca]
         if not risultati.empty:
@@ -154,9 +184,7 @@ with tab_automatico:
                     for v in riga_input_raw:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
-                            testo_puro = " ".join(val_str.split()).upper()
-                            parole = testo_puro.split()
-                            ultimo_porto_valido = parole if len(parole) > 0 else testo_puro
+                            ultimo_porto_valido = normalizza_porto_msc(v)
                         riga_porti_alta.append(ultimo_porto_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
@@ -164,7 +192,7 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.iloc
+                        pol_cella = row.iloc[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pod = str(pol_cella).strip().upper()
@@ -173,8 +201,8 @@ with tab_automatico:
                         for col_idx in range(1, len(row)):
                             prezzo_raw = row.iloc[col_idx]
                             try:
-                                prezzo = float(prezzo_raw)
-                                if pd.isna(prezzo) or prezzo <= 0: continue
+                                price = float(prezzo_raw)
+                                if pd.isna(price) or price <= 0: continue
                             except:
                                 continue
                             
@@ -184,9 +212,9 @@ with tab_automatico:
                             
                             lista_tariffe.append({
                                 "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
-                                "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
+                                "Nolo": price, "Valuta_Nolo": valuta_matrice_std,
                                 "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
-                                "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
+                                "Totale_Nolo": price, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
                                 "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": "Layout Orizzontale Export", "Origine": "Automatico"
                             })
                             
@@ -207,10 +235,8 @@ with tab_automatico:
                     
                     for v in riga_pod_raw:
                         val_str = str(v).strip()
-                        if pd.notna(v) and val_str != "" and val_str.upper() != "NAN":
-                            ultimo_pod_valido = " ".join(val_str.split()).upper()
-                            if ultimo_pod_valido in DIZIONARIO_PORTI_FISSI:
-                                ultimo_pod_valido = DIZIONARIO_PORTI_FISSI[ultimo_pod_valido]
+                        if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
+                            ultimo_pod_valido = normalizza_porto_msc(v)
                         riga_pod_pulita.append(ultimo_pod_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
@@ -218,18 +244,17 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.iloc
+                        pol_cella = row.iloc[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        pol = " ".join(str(pol_cella).split()).upper()
-                        if pol in DIZIONARIO_PORTI_FISSI: pol = DIZIONARIO_PORTI_FISSI[pol]
+                        pol = normalizza_porto_msc(pol_cella)
                         if pol in ["", "CURRENCY", "PORT", "TOTAL", "SCONOSCIUTO"]: continue
                         
                         for col_idx in range(1, len(row)):
                             prezzo_raw = row.iloc[col_idx]
                             try:
-                                prezzo = float(prezzo_raw)
-                                if pd.isna(prezzo) or prezzo <= 0: continue
+                                price = float(prezzo_raw)
+                                if pd.isna(price) or price <= 0: continue
                             except:
                                 continue
                             
@@ -240,15 +265,14 @@ with tab_automatico:
                             for container_std in tipi_da_generare:
                                 lista_tariffe.append({
                                     "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
-                                    "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
+                                    "Nolo": price, "Valuta_Nolo": valuta_matrice_std,
                                     "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
-                                    "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
+                                    "Totale_Nolo": price, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
                                     "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": "Layout Verticale", "Origine": "Automatico"
                                 })
                 
                 df_nuovo = pd.DataFrame(lista_tariffe)
                 if not df_nuovo.empty:
-                    # Rimuove le vecchie tariffe dello stesso vettore e dello stesso trade per sovrascriverle in modo pulito
                     df_pulito = df_master[(df_master["Compagnia"] != compagnia_file) | (df_master["Trade"] != trade_file)]
                     df_finale = pd.concat([df_pulito, df_nuovo], ignore_index=True)
                     salva_database(df_finale)
@@ -340,7 +364,7 @@ with tab_spese_porto:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
 
 # ==========================================
-# TAB 4: INSERIMENTO MANUALE SPOT (INTEGRATO E ALLINEATO)
+# TAB 4: INSERIMENTO MANUALE SPOT
 # ==========================================
 with tab_manuale_singolo:
     st.header("➕ Inserimento Manuale Singola Tariffa Spot Scomposta")
@@ -383,8 +407,11 @@ with tab_manuale_singolo:
                 testo_add_sin = f"EFS:{man_efs} BRC:{man_brc} ECA:{man_eca} ETS:{man_ets} FEU:{man_feu}"
                 testo_imb_sin = f"THC:{man_thc} | ISPS:{man_isps} | LILO:{man_lilo}"
                 
+                pol_std = normalizza_porto_msc(man_pol)
+                pod_std = normalizza_porto_msc(man_pod)
+                
                 nuova_riga = pd.DataFrame([{
-                    "POL": man_pol, "POD": man_pod, "Compagnia": man_carrier, "Trade": man_trade, "Container": man_container,
+                    "POL": pol_std, "POD": pod_std, "Compagnia": man_carrier, "Trade": man_trade, "Container": man_container,
                     "Nolo": man_nolo, "Valuta_Nolo": man_v_nolo, "Addizionali": tot_add_sin, "Valuta_Addizionali": man_v_add, "Descrizione_Addizionali": str(testo_add_sin),
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
