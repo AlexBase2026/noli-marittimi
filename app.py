@@ -54,7 +54,7 @@ with tab_ricerca:
     with col3:
         tipo_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"])
 
-    if pol_scelto and p_scelto := pod_scelto:
+    if pol_scelto and p_scelto :
         # Filtra i dati in base alle scelte dell'utente
         oggi = datetime.now().date()
         risultati = df_master[
