@@ -17,23 +17,20 @@ TRADE_SUPPORTATI = [
     "IPBC", "RED SEA", "EAF", "MIDDLE EAST", "FAR EAST", "MEDITERRANEAN", "GENERIC"
 ]
 
-# RIPRISTINATO E POTENZIATO: Dizionario per pulire le celle unite di MSC (sia sigle che stringhe lunghe Middle East)
+# Dizionario potenziato per mappare e ripulire le intestazioni complesse delle celle unite di MSC
 DIZIONARIO_PORTI_FISSI = {
-    "ITGOA": "GENOVA", 
-    "ITLIV": "LIVORNO", 
-    "ITSPE": "LA SPEZIA", 
-    "ITVCE": "VENEZIA", 
-    "ITNAP": "NAPOLI", 
-    "ITAO1": "ANCONA",
+    "ITGOA": "GENOVA", "ITLIV": "LIVORNO", "ITSPE": "LA SPEZIA", 
+    "ITVCE": "VENEZIA", "ITNAP": "NAPOLI", "ITAO1": "ANCONA",
+    "LA SPEZIA, GENOVA, GIOIA TAURO, TRIESTE": "GENOVA",
     "GENOVA, LA SPEZIA, TRIESTE, AND GIOIA TAURO": "GENOVA",
     "VENEZIA, RAVENNA, ANCONA": "VENEZIA",
     "NAPOLI/SALERNO (VIA NOLO)": "NAPOLI",
+    "BARI, CIVITAVECCHIA, TRAPANI, POZZALLO, AUGUSTA & TERMINI IMERESE": "BARI",
     "BARI, CIVITAVECCHIA, PALERMO, TRAPANI, POZZALLO, AUGUSTA & TERMINI IMERESE": "BARI",
     "CAGLIARI": "CAGLIARI"
 }
 
 def normalizza_porto_msc(valore_cella):
-    """Mantiene il testo del porto esattamente come scritto nel listino, applicando le conversioni fisse"""
     testo = str(valore_cella).strip().replace("\n", " ")
     if not testo or testo.upper() in ["NAN", "NONE", "", "0", "0.0"]:
         return "SCONOSCIUTO"
@@ -41,7 +38,6 @@ def normalizza_porto_msc(valore_cella):
     testo = " ".join(testo.split())
     testo_upper = testo.upper()
     
-    # Controlla se la stringa intera (o la sigla) è presente nel nostro dizionario di conversione
     if testo_upper in DIZIONARIO_PORTI_FISSI:
         return DIZIONARIO_PORTI_FISSI[testo_upper]
         
@@ -73,7 +69,7 @@ def salva_database(df):
 df_master = carica_database()
 
 st.title("🚢 Sistema Nazionale Tariffario Noli Marittimi")
-st.write("Console aziendale condivisa per l'importazione automatica, la scomposizione valutaria e la differenziazione dei Trade dei vettori.")
+st.write("Console aziendale condivisa per l'importazione automatica, la scomposizione valutaria e la differenziazione dei Trade.")
 
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
     "🔍 Ricerca Tariffe", 
@@ -166,7 +162,7 @@ with tab_automatico:
             if st.button("Estrai Solo Noli Base"):
                 lista_tariffe = []
                 
-                # --- PARSER LAYOUT 2: MATRICI ORIZZONTALI (YML, CMA, COSCO, EVERGREEN, ONE, MAERSK) ---
+                # --- PARSER LAYOUT 2: GRIGLIE ORIZZONTALI (YML, CMA, COSCO, EVERGREEN, ONE, MAERSK) ---
                 if compagnia_file in ["CMA", "COSCO", "EVERGREEN", "MAERSK", "ONE", "YML"]:
                     riga_container_idx = None
                     for idx, row in raw_df.iterrows():
@@ -218,7 +214,7 @@ with tab_automatico:
                                 "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": "Layout Orizzontale Export", "Origine": "Automatico"
                             })
                             
-                # --- PARSER LAYOUT 1: STRUTTURA VERTICALE STANDARD (MSC, HAPAG, MESSINA, ECC.) ---
+                # --- PARSER LAYOUT 1: STRUTTURA VERTICALE MSC (IPBC, MIDDLE EAST, FAR EAST) ---
                 else:
                     riga_container_idx = None
                     for idx, row in raw_df.iterrows():
@@ -244,11 +240,20 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.iloc[0]
-                        if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        pol = normalizza_porto_msc(pol_cella)
-                        if pol in ["", "CURRENCY", "PORT", "TOTAL", "SCONOSCIUTO"]: continue
+                        # LOGICA DI SALVATAGGIO SPECIFICA PER I LISTINI MIDDLE EAST / FAR EAST DI MSC
+                        # Se nella colonna A c'è la scritta verticale del Trade, prendi il porto dalla colonna B (indice 1)
+                        if str(row.iloc[0]).strip().upper() in ["MIDDLE", "MIDDLE EAST", "FAR EAST", "FAR", "EAST"]:
+                            pol_cella = row.iloc[1]
+                        else:
+                            pol_cella = row.iloc[0]
+                            
+                        if pd.isna(pol_cella) or str(pol_cella).strip() == "" or str(pol_cella).upper() in ["NAN", "P.O.D."]: 
+                            continue
+                        
+                        pod_estero = " ".join(str(pol_cella).split()).upper()
+                        if "GUIDELINE" in pod_estero or "UMM QASR" in pod_estero and "(" in pod_estero:
+                            pod_estero = "UMM QASR"
                         
                         for col_idx in range(1, len(row)):
                             prezzo_raw = row.iloc[col_idx]
@@ -258,17 +263,19 @@ with tab_automatico:
                             except:
                                 continue
                             
-                            pod = riga_pod_pulita[col_idx]
+                            pol_italiano = riga_pod_pulita[col_idx]
                             tipo_c_raw = riga_cont_pulita[col_idx]
+                            
+                            # Generazione sdoppiata automatica delle righe 40' in 40FT e 40HC commerciali
                             tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                             
                             for container_std in tipi_da_generare:
                                 lista_tariffe.append({
-                                    "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
+                                    "POL": pol_italiano, "POD": pod_estero, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
                                     "Nolo": price, "Valuta_Nolo": valuta_matrice_std,
                                     "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
                                     "Totale_Nolo": price, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
-                                    "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": "Layout Verticale", "Origine": "Automatico"
+                                    "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Caricato via trade {trade_file}", "Origine": "Automatico"
                                 })
                 
                 df_nuovo = pd.DataFrame(lista_tariffe)
@@ -276,10 +283,10 @@ with tab_automatico:
                     df_pulito = df_master[(df_master["Compagnia"] != compagnia_file) | (df_master["Trade"] != trade_file)]
                     df_finale = pd.concat([df_pulito, df_nuovo], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} noli base puri in archivio per {compagnia_file} - Trade {trade_file}.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} record puliti per {compagnia_file} - Trade {trade_file}.")
                     st.rerun()
                 else:
-                    st.error("Nessun prezzo rilevato. Verifica il formato.")
+                    st.error("Nessun prezzo rilevato. Verifica la corrispondenza dei dati.")
         except Exception as e:
             st.error(f"Errore tecnico durante l'analisi: {e}")
 
@@ -361,7 +368,7 @@ with tab_spese_porto:
             st.success(f"Configurazione completata per {pol_selezionato_spese} limitatamente al Trade {trade_selezionato_spese}!")
             st.rerun()
     else:
-        st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
+        st.info("Nessun dato di nolo base presente. Carica un listino per valorizzare i campi.")
 
 # ==========================================
 # TAB 4: INSERIMENTO MANUALE SPOT
@@ -413,17 +420,4 @@ with tab_manuale_singolo:
                 nuova_riga = pd.DataFrame([{
                     "POL": pol_std, "POD": pod_std, "Compagnia": man_carrier, "Trade": man_trade, "Container": man_container,
                     "Nolo": man_nolo, "Valuta_Nolo": man_v_nolo, "Addizionali": tot_add_sin, "Valuta_Addizionali": man_v_add, "Descrizione_Addizionali": str(testo_add_sin),
-                    "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
-                    "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
-                }])
-                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
-                st.success("Tariffa spot salvata correttamente!")
-                st.rerun()
-
-with tab_database:
-    st.header("Visualizzazione Tabellare di Controllo (Dati nel CSV)")
-    st.dataframe(df_master, use_container_width=True)
-    if st.button("🗑 Svuota Intero Database"):
-        if os.path.exists(DB_FILE):
-            os.remove(DB_FILE)
-        st.rerun()
+                    "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb
