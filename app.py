@@ -106,7 +106,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: MULTI-PARSER CORRETTO E ALLINEATO
+# TAB 2: CARICAMENTO MATRICE EXCEL
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -155,11 +155,9 @@ with tab_automatico:
                 riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
                 dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                 
-                # ----------------------------------------------------------------------
-                # A. PARSER PER TRADE VERTICALI EXPORT STANDARD (IPBC, RED SEA, EAF)
-                # ----------------------------------------------------------------------
+                # --- PARSER PER TRADE VERTICALI EXPORT STANDARD (IPBC, RED SEA, EAF) ---
                 if trade_file in ["IPBC", "RED SEA", "EAF"]:
-                    for _, row in dati_prezzi.iterrows():
+                    for idx, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
                         val_cella_a = str(row.iloc[0]).strip().upper()
                         if val_cella_a not in DIZIONARIO_ITALIA: continue
@@ -184,14 +182,12 @@ with tab_automatico:
                                 "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Listino Verticale {trade_file}", "Origine": "Automatico"
                             })
                             
-                # ----------------------------------------------------------------------
-                # B. PARSER PER TRADE ORIZZONTALI INVERTITI (MIDDLE EAST, FAR EAST)
-                # ----------------------------------------------------------------------
+                # --- PARSER PER TRADE ORIZZONTALI INVERTITI (MIDDLE EAST, FAR EAST) ---
                 else:
-                    for _, row in dati_prezzi.iterrows():
+                    for idx, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
                         val_cella_a = str(row.iloc[0]).strip().upper()
-                        if val_cella_a in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO", "F A R", "E A S T", "M I D D L E", "MANGALORE UPON REQUEST"] or "ALL CARGO" in val_cella_a: continue
+                        if val_cella_a in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"] or "ALL CARGO" in val_cella_a: continue
                         pod = val_cella_a
                         
                         for col_idx in range(1, len(row)):
@@ -219,7 +215,7 @@ with tab_automatico:
                     df_pulito = df_master[(df_master["Compagnia"] != compagnia_file) | (df_master["Trade"] != trade_file)]
                     df_finale = pd.concat([df_pulito, df_nuovo], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} record per {compagnia_file} - Trade {trade_file}.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} record commerciali per {compagnia_file} - Trade {trade_file}.")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo valido rilevato. Verifica i campi del file.")
@@ -237,7 +233,7 @@ with tab_spese_porto:
             lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != "" and p != "SCONOSCIUTO"]
             pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL)", lista_pol_esistenti, key="pol_sp_tr")
         with col_g2:
-            lista_trade_esistenti = [t for t in sorted(df_master["Trade"].unique()) if str(t).strip() != "" ]
+            lista_trade_esistenti = [t for t in sorted(df_master["Trade"].unique()) if str(t).strip() != ""]
             trade_selezionato_spese = st.selectbox("Seleziona il Trade di riferimento", lista_trade_esistenti, key="trade_sp_tr")
             
         st.markdown("---")
@@ -279,11 +275,17 @@ with tab_spese_porto:
                     testo_imb = f"THC:{v_thc} | ISPS:{v_isps} | LILO:{v_lilo}"
                     
                     lista_add_descr = []
-                    if v_efs > 0: lista_add_descr.append(f"EFS:{v_efs * moltiplicatore_add}")
-                    if v_brc > 0: lista_add_descr.append(f"BRC:{v_brc * moltiplicatore_add}")
-                    if v_eca > 0: lista_add_descr.append(f"ECA:{v_eca * moltiplicatore_add}")
-                    if v_ets > 0: lista_add_descr.append(f"ETS:{v_ets * moltiplicatore_add}")
-                    if v_feu > 0: lista_add_descr.append(f"FEU:{v_feu * moltiplicatore_add}")
+                    if v_efs > 0:
+                        lista_add_descr.append(f"EFS:{v_efs * moltiplicatore_add}")
+                    if v_brc > 0:
+                        lista_add_descr.append(f"BRC:{v_brc * moltiplicatore_add}")
+                    if v_eca > 0:
+                        lista_add_descr.append(f"ECA:{v_eca * moltiplicatore_add}")
+                    if v_ets > 0:
+                        lista_add_descr.append(f"ETS:{v_ets * moltiplicatore_add}")
+                    if v_feu > 0:
+                        lista_add_descr.append(f"FEU:{v_feu * moltiplicatore_add}")
+                        
                     testo_add = " + ".join(lista_add_descr) if lista_add_descr else "Nessuna surcharge"
                     
                     df_modificato.loc[condizione, "Spese_Imbarco"] = float(totale_imb_calcolato)
@@ -358,4 +360,5 @@ with tab_database:
     st.header("Visualizzazione Tabellare di Controllo (Dati nel CSV)")
     st.dataframe(df_master, use_container_width=True)
     if st.button("🗑 Svuota Intero Database"):
-        
+        if os.path.exists(DB_FILE): os.remove(DB_FILE)
+        st.rerun()
