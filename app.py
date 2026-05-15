@@ -13,23 +13,35 @@ COMPAGNIE_SUPPORTATE = [
     "COTUNAV", "MAGUISA"
 ]
 
-DIZIONARIO_PORTI_FISSI = {
-    "ITGOA": "GENOVA", "ITLIV": "LIVORNO", "ITSPE": "LA SPEZIA", 
-    "ITVCE": "VENEZIA", "ITNAP": "NAPOLI", "ITAO1": "ANCONA"
+# Dizionario di conversione geografica per codici estesi e sigle
+DIZIONARIO_PORTI_GEOGRAFICI = {
+    "ITGOA": "GENOVA", "GENOVA": "GENOVA",
+    "ITLIV": "LIVORNO", "LIVORNO": "LIVORNO",
+    "ITSPE": "LA SPEZIA", "LA SPEZIA": "LA SPEZIA",
+    "ITVCE": "VENEZIA", "VENEZIA": "VENEZIA",
+    "ITNAP": "NAPOLI", "NAPOLI": "NAPOLI",
+    "ITAO1": "ANCONA", "ANCONA": "ANCONA",
+    "ITSGK": "TRIESTE", "TRIESTE": "TRIESTE",
+    "ITSAL": "SALERNO", "SALERNO": "SALERNO"
 }
 
 def normalizza_porto_msc(valore_cella):
-    """Mantiene il testo del porto esattamente come scritto nel listino, senza troncarlo"""
+    """Pulisce la stringa ed estrae la sigla porto traducendola in italiano"""
     testo = str(valore_cella).strip().replace("\n", " ")
     if not testo or testo.upper() in ["NAN", "NONE", "", "0", "0.0"]:
         return "SCONOSCIUTO"
     
-    testo = " ".join(testo.split())
-    testo_upper = testo.upper()
-    if testo_upper in DIZIONARIO_PORTI_FISSI:
-        return DIZIONARIO_PORTI_FISSI[testo_upper]
-        
-    return testo
+    testo_puro = " ".join(testo.split())
+    testo_upper = testo_puro.upper()
+    
+    # Prende la prima parola (es. 'ITGOA' da 'ITGOA by MD2')
+    parole = testo_upper.split()
+    if len(parole) > 0:
+        prima_parola = parole[0].replace("-", "").replace("'", "")
+        if prima_parola in DIZIONARIO_PORTI_GEOGRAFICI:
+            return DIZIONARIO_PORTI_GEOGRAFICI[prima_parola]
+            
+    return testo_puro
 
 def carica_database():
     if os.path.exists(DB_FILE):
@@ -122,7 +134,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: PARSER CON CORREZIONE PUNTAMENTO INDICE [0]
+# TAB 2: PARSER CON PULIZIA AUTOMATICA COMPLETA DEL POL
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -162,6 +174,7 @@ with tab_automatico:
                     for v in riga_input_raw:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
+                            # Applica la normalizzazione con la nuova regola per estrarre la città pulita
                             ultimo_porto_valido = normalizza_porto_msc(v)
                         riga_porti_alta.append(ultimo_porto_valido)
                     
@@ -170,11 +183,11 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        # CORREZIONE SUL FILE YML: Isoliamo unicamente la cella d'indice 0 (Colonna A)
-                        pol_cella = row.values[0]
+                        pol_cella = row.values
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        pod = normalizza_porto_msc(pol_cella)
+                        # Il porto estero rimane come destinazione (POD)
+                        pod = str(pol_cella).strip().upper()
                         if pod in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
                             continue
                         
@@ -186,6 +199,7 @@ with tab_automatico:
                             except:
                                 continue
                             
+                            # Il porto italiano ripulito viene registrato come POL
                             pol = riga_porti_alta[col_idx]
                             tipo_c_raw = riga_cont_pulita[col_idx]
                             
@@ -230,8 +244,7 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        # CORREZIONE SUL FILE MSC: Isoliamo unicamente la cella d'indice 0 (Colonna A)
-                        pol_cella = row.values[0]
+                        pol_cella = row.values
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pol = normalizza_porto_msc(pol_cella)
@@ -264,7 +277,7 @@ with tab_automatico:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata con successo per {compagnia_file}!")
+                    st.success(f"Estrazione completata! Mappati i flussi Export con porti italiani ripuliti (GENOVA, LA SPEZIA, ecc.).")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
@@ -272,10 +285,10 @@ with tab_automatico:
             st.error(f"Errore tecnico: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO MOLTIPLICATORI
+# TAB 3: GESTIONE SPESE PORTO
 # ==========================================
 with tab_spese_porto:
-    st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
+    st.header("✍️ Inserimento Spese per Porto")
     if not df_master.empty:
         lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != "" and p != "SCONOSCIUTO"]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
@@ -392,7 +405,7 @@ with tab_manuale_singolo:
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
-                salva_database(pd.concat([df_master, nueva_riga], ignore_index=True))
+                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
                 st.success("Tariffa spot salvata correttamente!")
                 st.rerun()
 
