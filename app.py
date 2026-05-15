@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import numpy as np
 
 # Configurazione iniziale dell'interfaccia web aziendale
 st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_icon="🚢")
@@ -55,130 +54,121 @@ with tab_ricerca:
             (df_master["Container"] == tipo_container)
         ]
         if not risultati.empty:
-            st.success(f"Opzioni tariffarie trovate:")
+            st.success("Opzioni tariffarie trovate:")
             st.dataframe(risultati.sort_values(by="Totale_Nolo"), use_container_width=True)
         else:
             st.warning("Nessuna tariffa trovata per questa selezione.")
 
 # ==========================================
-# TAB 2: PARSER INTELLIGENTE PER MATRICI EXCEL (MSC)
+# TAB 2: PARSER MATRICI EXCEL AGGIORNATO E ROBUSTO
 # ==========================================
 with tab_automatico:
-    st.header("Caricamento Listini Matrix Excel / PDF")
-    st.write("Questo modulo elabora automaticamente i file strutturati a matrice (es. griglie MSC con porti in riga e colonna).")
+    st.header("Caricamento Listini Matrix Excel")
+    st.write("Modulo ottimizzato per griglie MSC con porti sia nelle righe che nelle colonne.")
     
     compagnia_file = st.selectbox("Seleziona la compagnia", ["MSC", "CMA", "HAPAG"])
+    validita_foglio = st.text_input("Periodo di Validità per questo listino", "01/05/2026-31/05/2026")
     
-    # Campo di input per specificare il periodo di validità di questo intero foglio
-    validita_foglio = st.text_input("Periodo di Validità per questo listino (es. 01/05/2026-31/05/2026)", "01/05/2026-31/05/2026")
-    
-    file_caricato = st.file_uploader("Trascina qui il file Excel o PDF", type=["xlsx", "xls", "pdf"])
+    file_caricato = st.file_uploader("Trascina qui il file Excel", type=["xlsx", "xls"])
     
     if file_caricato is not None:
-        if file_caricato.name.endswith('.pdf'):
-            st.info("Funzione di lettura testo PDF attiva. Per strutture a griglia complessa come MSC, si raccomanda l'uso del file Excel originale.")
-        else:
-            try:
-                # Carica l'excel leggendo le prime righe per analizzare la struttura
-                raw_df = pd.read_excel(file_caricato, header=None)
+        try:
+            # Legge l'excel senza intestazioni per gestire le celle unite liberamente
+            raw_df = pd.read_excel(file_caricato, header=None)
+            st.success("File Excel caricato in memoria.")
+            
+            if st.button("Avvia Conversione Automatica della Griglia"):
+                # 1. Trova la riga dei container (20', 40') in modo sicuro convertendo tutto in testo
+                riga_container_idx = None
+                for idx, row in raw_df.iterrows():
+                    valori_testo = [str(v).strip() for v in row.values if pd.notna(v)]
+                    # Se la riga contiene elementi riconducibili a 20 e 40, è la riga di sbarramento
+                    if any("20" in s for s in valori_testo) and any("40" in s for s in valori_testo):
+                        riga_container_idx = idx
+                        break
                 
-                st.success("File Excel caricato in memoria. Elaborazione della matrice...")
+                if riga_container_idx is None:
+                    riga_container_idx = 2  # Fallback standard
                 
-                if st.button("Avvia Conversione Automatica della Griglia"):
-                    # 1. Trova la riga dove ci sono i tipi di container (20', 40') per capire dove iniziano i dati
-                    # Nel file MSC solitamente è la riga che contiene '20'' e '40'' alternati
-                    riga_container_idx = None
-                    for idx, row in raw_df.iterrows():
-                        row_str = row.astype(str).values
-                        if any("20'" in s or "20" in s for s in row_str) and any("40'" in s or "40" in s for s in row_str):
-                            riga_container_idx = idx
-                            break
+                # 2. Ricostruisce la riga dei POD sopra a quella dei container riempiendo i vuoti delle celle unite
+                riga_pod_raw = raw_df.iloc[riga_container_idx - 1].copy()
+                riga_pod_pulita = []
+                ultimo_pod_valido = "SCONOSCIUTO"
+                
+                for v in riga_pod_raw:
+                    if pd.notna(v) and str(v).strip() != "" and "ITALY" not in str(v).upper():
+                        ultimo_pod_valido = str(v).strip().upper()
+                    riga_pod_pulita.append(ultimo_pod_valido)
+                
+                # 3. Legge la riga dei tipi container
+                riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
+                
+                # 4. Estrae i prezzi puri a partire dalla riga successiva
+                dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
+                lista_tariffe_standardizzate = []
+                
+                for _, row in dati_prezzi.iterrows():
+                    # Il primo elemento della riga è sempre il porto di partenza (POL)
+                    pol_raw = row.iloc[0]
+                    if pd.isna(pol_raw):
+                        continue
+                        
+                    pol = str(pol_raw).strip().upper()
+                    # Salta righe di intestazione secondarie o note in fondo al file
+                    if pol == "" or "CURRENCY" in pol or "MSC" in pol or "PORT" in pol:
+                        continue
                     
-                    if riga_container_idx is None:
-                        # Fallback se non trova le intestazioni esatte
-                        riga_container_idx = 2 
-                    
-                    # Rileva i POD (stanno sopra la riga dei container)
-                    riga_pod = raw_df.iloc[riga_container_idx - 1].forward_fill() if riga_container_idx > 0 else raw_df.iloc[0]
-                    # Riempi i blocchi uniti dei POD (es. Nhava Sheva copre sia la colonna 20' che 40')
-                    riga_pod = pd.Series(riga_pod).ffill().tolist()
-                    
-                    riga_cont = raw_df.iloc[riga_container_idx].tolist()
-                    
-                    # Estrae la matrice dei prezzi puri e dei POL
-                    dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
-                    
-                    lista_tariffe_standardizzate = []
-                    
-                    # Scorri ogni riga di porto di partenza (POL)
-                    for _, row in dati_prezzi.iterrows():
-                        pol = str(row[0]).strip().upper()
-                        if pd.isna(row[0]) or pol == "NAN" or "CURRENCY" in pol or pol == "":
-                            continue
-                            
-                        # Scorri le colonne partendo dalla seconda (indice 1)
-                        for col_idx in range(1, len(row)):
-                            prezzo_val = row[col_idx]
-                            
-                            # Trasforma in numero pulito
-                            try:
-                                prezzo = float(prezzo_val)
-                            except:
-                                continue
-                                
+                    # Scorri i prezzi presenti nelle colonne successive
+                    for col_idx in range(1, len(row)):
+                        prezzo_raw = row.iloc[col_idx]
+                        
+                        # Verifica se la cella contiene un prezzo numerico valido
+                        try:
+                            prezzo = float(prezzo_raw)
                             if pd.isna(prezzo) or prezzo <= 0:
                                 continue
-                                
-                            # Determina il POD e il tipo di Container associato a questa colonna
-                            pod = str(riga_pod[col_idx]).strip().upper()
-                            tipo_c_raw = str(riga_cont[col_idx]).strip()
+                        except:
+                            continue
+                        
+                        # Recupera POD e Tipo Container corrispondenti alla colonna corrente
+                        pod = riga_pod_pulita[col_idx]
+                        tipo_c_raw = riga_cont_pulita[col_idx]
+                        
+                        if "20" in tipo_c_raw:
+                            container_std = "20FT"
+                        elif "40HC" in tipo_c_raw or "HC" in tipo_c_raw:
+                            container_std = "40HC"
+                        else:
+                            container_std = "40FT"
+                        
+                        # Pulisce eventuali note tra parentesi nel nome del porto di destinazione
+                        if "(" in pod:
+                            pod = pod.split("(")[0].strip()
                             
-                            # Normalizza il nome del container
-                            if "20" in tipo_c_raw:
-                                container_std = "20FT"
-                            elif "40HC" in tipo_c_raw or "hc" in tipo_c_raw:
-                                container_std = "40HC"
-                            else:
-                                container_std = "40FT"
-                                
-                            # Rimuove note dai nomi dei porti per pulizia
-                            if "(" in pod:
-                                pod = pod.split("(")[0].strip()
-                                
-                            lista_tariffe_standardizzate.append({
-                                "POL": pol,
-                                "POD": pod,
-                                "Compagnia": compagnia_file,
-                                "Container": container_std,
-                                "Nolo": prezzo,
-                                "Addizionali": 0.0,
-                                "Descrizione_Addizionali": "Incluso nel file matrice",
-                                "Totale_Nolo": prezzo, # Al momento imposta uguale, modificabile da inserimento
-                                "Spese_Imbarco": 0.0,
-                                "Descrizione_Spese_Imbarco": "",
-                                "Free_Time": "Vedi note generali",
-                                "Validità": validita_foglio,
-                                "Note": f"Importato da griglia Trade {compagnia_file}",
-                                "Origine": "Automatico"
-                            })
+                        lista_tariffe_standardizzate.append({
+                            "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Container": container_std,
+                            "Nolo": prezzo, "Addizionali": 0.0, "Descrizione_Addizionali": "Incluso nel file matrice",
+                            "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Descrizione_Spese_Imbarco": "",
+                            "Free_Time": "Vedi listino", "Validità": validita_foglio, "Note": "Importato da matrice", "Origine": "Automatico"
+                        })
+                
+                df_nuovo_standard = pd.DataFrame(lista_tariffe_standardizzate)
+                
+                if not df_nuovo_standard.empty:
+                    df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
+                    df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
+                    salva_database(df_finale)
                     
-                    df_nuovo_standard = pd.DataFrame(lista_tariffe_standardizzate)
-                    
-                    if not df_nuovo_standard.empty:
-                        # Unione e salvataggio
-                        df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
-                        df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
-                        salva_database(df_finale)
-                        
-                        st.success(f"Conversione completata! Generate correttamente {len(df_nuovo_standard)} combinazioni tariffarie POL/POD per {compagnia_file}.")
-                        st.rerun()
-                    else:
-                        st.error("Nessun prezzo numerico valido estratto. Verifica la struttura del foglio Excel.")
-                        
-            except Exception as e:
-                st.error(f"Errore tecnico durante la conversione della matrice: {e}")
+                    st.success(f"Conversione completata con successo! Generate {len(df_nuovo_standard)} combinazioni POL/POD.")
+                    st.rerun()
+                else:
+                    st.error("Nessun dato tariffario estratto. Verifica la struttura delle celle.")
+        except Exception as e:
+            st.error(f"Errore tecnico durante la conversione: {e}")
 
-# (I TAB 3 e 4 mantengono le stesse funzioni descrittive e note inserite in precedenza)
+# ==========================================
+# TAB 3: INSERIMENTO MANUALE
+# ==========================================
 with tab_manuale:
     st.header("Inserisci una singola tariffa")
     with st.form("Form Inserimento Dettagliato"):
@@ -209,7 +199,8 @@ with tab_manuale:
                     "Totale_Nolo": totale_calcolato, "Spese_Imbarco": man_spese, "Descrizione_Spese_Imbarco": man_desc_spese,
                     "Free_Time": man_freetime, "Validità": man_validita, "Note": man_note, "Origine": "Manuale"
                 }])
-                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
+                df_master = pd.concat([df_master, nuova_riga], ignore_index=True)
+                salva_database(df_master)
                 st.success("Salvataggio completato!")
                 st.rerun()
 
