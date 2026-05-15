@@ -6,6 +6,14 @@ st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_i
 
 DB_FILE = "database_noli_analitico_valute.csv"
 
+# Lista unificata e standardizzata di tutte le 23 compagnie marittime richieste
+COMPAGNIE_SUPPORTATE = [
+    "MSC", "CMA", "HAPAG", "MAERSK", "EVERGREEN", "MESSINA", "GRIMALDI", 
+    "COSCO", "YML", "ONE", "AKKON", "ARKAS", "TARROS", "HMM", "OOCL", 
+    "SAHEL", "SCI LINE", "ZIM", "COSIARMA", "MARFRET", "BORCHARD", 
+    "COTUNAV", "MAGUISA"
+]
+
 def carica_database():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
@@ -31,12 +39,13 @@ def salva_database(df):
 
 df_master = carica_database()
 
-st.title("🚢 Sistema Gestione Noli Marittimi - Automazione Moltiplicatori Costi")
+st.title("🚢 Sistema Centralizzato Noli Marittimi Multi-Carrier")
+st.write("Software aziendale condiviso per la gestione analitica delle quotazioni delle principali compagnie di navigazione.")
 
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
     "🔍 Ricerca Tariffe", 
-    "📂 1. Carica Matrice Excel", 
-    "✍️ 2. Gestione Spese MSC per Porto",
+    "📂 1. Carica Matrice Excel Vettori", 
+    "✍️ 2. Gestione Spese per Porto",
     "➕ 3. Inserimento Manuale Spot",
     "📊 Archivio Database Completo"
 ])
@@ -95,11 +104,13 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: CARICAMENTO MATRICE EXCEL
+# TAB 2: CARICAMENTO MATRICE EXCEL MULTI-CARRIER
 # ==========================================
 with tab_automatico:
-    st.header("Estrazione Automatica Noli Base da Matrice")
-    compagnia_file = st.selectbox("Compagnia Marittima", ["MSC", "CMA", "HAPAG"])
+    st.header("Estrazione Automatica Noli Base da Matrice Excel")
+    
+    # Aggiornato con l'elenco completo delle 23 compagnie
+    compagnia_file = st.selectbox("Seleziona la Compagnia del listino Excel", COMPAGNIE_SUPPORTATE, key="comp_auto")
     validita_foglio = st.text_input("Validità Temporale Foglio", "01/05/2026-31/05/2026", key="val_auto")
     
     valuta_matrice = st.radio("Seleziona la valuta dei noli base della griglia Excel:", ["USD ($)", "EUR (€)"], horizontal=True)
@@ -138,12 +149,12 @@ with tab_automatico:
                 for _, row in dati_prezzi.iterrows():
                     if len(row.values) == 0:
                         continue
-                    pol_raw = row.values
+                    pol_raw = row.values[0]
                     if pd.isna(pol_raw) or pol_raw is None:
                         continue
                     
                     pol = str(pol_raw).strip().upper()
-                    if pol == "" or "CURRENCY" in pol or "MSC" in pol or "PORT" in pol or "MANGALORE" in pol or "ALL ABOVE" in pol:
+                    if pol == "" or "CURRENCY" in pol or "PORT" in pol or "MANGALORE" in pol or "ALL ABOVE" in pol:
                         continue
                     
                     for col_idx in range(1, len(row)):
@@ -160,7 +171,7 @@ with tab_automatico:
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
                         if "(" in pod:
-                            pod = pod.split("(").strip()
+                            pod = pod.split("(")[0].strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
@@ -168,7 +179,7 @@ with tab_automatico:
                                 "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
                                 "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
                                 "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
-                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": "Importato da matrice", "Origine": "Automatico"
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da matrice {compagnia_file}", "Origine": "Automatico"
                             })
                 
                 df_nuovo_standard = pd.DataFrame(lista_tariffe)
@@ -176,13 +187,13 @@ with tab_automatico:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} noli base puri.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} noli base puri per {compagnia_file}.")
                     st.rerun()
         except Exception as e:
             st.error(f"Errore durante l'estrazione: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO (RIPRISTINATI I TOTALI VISIVI METRIC)
+# TAB 3: GESTIONE SPESE PORTO MULTI-CARRIER
 # ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
@@ -201,7 +212,6 @@ with tab_spese_porto:
             v_lilo = st.number_input("LILO (base 20FT)", min_value=0.0, step=5.0)
             
             totale_imb_calcolato = v_thc + v_isps + v_lilo
-            # REINSERITI I CONTATORI GRAFICI RICHIESTI
             st.write(" ")
             st.metric("Totale Imbarco (20FT / 40FT / 40HC)", f"{curr_imb_std} {totale_imb_calcolato:.2f}")
             
@@ -216,7 +226,6 @@ with tab_spese_porto:
             v_feu = st.number_input("FEU (base 20FT)", min_value=0.0, step=5.0)
             
             totale_add_calcolato = v_efs + v_brc + v_eca + v_ets + v_feu
-            # RIPRISTINATA L'ANTEPRIMA DELLE SURCHARGES SDOPPIATE A SCHERMO
             st.write(" ")
             st.metric("Totale Addizionali 20FT", f"{curr_add_std} {totale_add_calcolato:.2f}")
             st.metric("Totale Addizionali 40FT / 40HC (Automatico x2)", f"{curr_add_std} {totale_add_calcolato * 2:.2f}")
@@ -262,13 +271,13 @@ with tab_spese_porto:
                     df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
             
             salva_database(df_modificato)
-            st.success("Database aggiornato applicando i totali!")
+            st.success("Database aggiornato applicando i totali con i corretti moltiplicatori!")
             st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
 
 # ==========================================
-# TAB 4: INSERIMENTO MANUALE SPOT
+# TAB 4: INSERIMENTO MANUALE CON SUPPORTO COMPAGNIE ESTESO
 # ==========================================
 with tab_manuale_singolo:
     st.header("➕ Inserimento Manuale Singola Tariffa Spot Scomposta")
@@ -276,7 +285,8 @@ with tab_manuale_singolo:
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
             man_pol = st.text_input("Porto POL (Partenza)").upper().strip()
-            man_carrier = st.text_input("Compagnia (es. MSC)").upper().strip()
+            # Utilizza il menu a tendina con l'elenco completo per l'inserimento manuale
+            man_carrier = st.selectbox("Seleziona Compagnia", COMPAGNIE_SUPPORTATE, key="comp_man")
             man_nolo = st.number_input("Nolo Base", min_value=0.0, step=50.0)
             man_v_nolo = st.selectbox("Valuta Nolo Base", ["USD", "EUR"])
             st.markdown("**Spese Locali Imbarco**")
@@ -317,7 +327,7 @@ with tab_manuale_singolo:
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
                 salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
-                st.success("Tariffa spot salvata correttamente!")
+                st.success(f"Tariffa spot per {man_carrier} salvata correttamente!")
                 st.rerun()
 
 with tab_database:
