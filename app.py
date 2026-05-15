@@ -13,8 +13,6 @@ COMPAGNIE_SUPPORTATE = [
     "COTUNAV", "MAGUISA"
 ]
 
-# Dizionario esteso per convertire solo quando c'è una corrispondenza esatta di codice.
-# Se la stringa è complessa o contiene descrizioni, verrà mantenuta l'intestazione originale integra.
 DIZIONARIO_PORTI_FISSI = {
     "ITGOA": "GENOVA", "ITLIV": "LIVORNO", "ITSPE": "LA SPEZIA", 
     "ITVCE": "VENEZIA", "ITNAP": "NAPOLI", "ITAO1": "ANCONA"
@@ -26,10 +24,7 @@ def normalizza_porto_msc(valore_cella):
     if not testo or testo.upper() in ["NAN", "NONE", "", "0", "0.0"]:
         return "SCONOSCIUTO"
     
-    # Rimuove spazi doppi interni
     testo = " ".join(testo.split())
-    
-    # Se è un codice puro presente nel dizionario lo converte, altrimenti lascia l'intestazione originale intatta
     testo_upper = testo.upper()
     if testo_upper in DIZIONARIO_PORTI_FISSI:
         return DIZIONARIO_PORTI_FISSI[testo_upper]
@@ -127,7 +122,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: PARSER CON ESTRAZIONE INTEGRALE INTELLIGENTE
+# TAB 2: PARSER BLINDATO SULLA CELLA DI INDICE 0
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -148,7 +143,7 @@ with tab_automatico:
             if st.button("Estrai Solo Noli Base"):
                 lista_tariffe = []
                 
-                # --- PARSER LAYOUT 2: GRIGLIE ORIZZONTALMENTE ORIENTATE (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK) ---
+                # --- PARSER LAYOUT 2: MATRICI ORIZZONTALI EXPORT (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK) ---
                 if compagnia_file in ["CMA", "COSCO", "EVERGREEN", "MAERSK", "ONE", "YML"]:
                     riga_container_idx = None
                     for idx, row in raw_df.iterrows():
@@ -160,22 +155,23 @@ with tab_automatico:
                     if riga_container_idx is None:
                         riga_container_idx = 2
                     
-                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].tolist()
+                    riga_input_raw = raw_df.iloc[riga_container_idx - 1].tolist()
                     riga_porti_alta = []
                     ultimo_porto_valido = "SCONOSCIUTO"
                     
-                    for v in riga_pod_raw:
+                    for v in riga_input_raw:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
                             ultimo_porto_valido = normalizza_porto_msc(v)
-                        riga_porti_alta.append(ultimo_porto_valido)
+                        riga_porti_alta.append(ultimo_pod_valido = ultimo_porto_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.values
+                        # CORREZIONE: Estrae unicamente la cella d'indice 0 della riga
+                        pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pod = normalizza_porto_msc(pol_cella)
@@ -205,10 +201,10 @@ with tab_automatico:
                                 "Nolo": prezzo, "Valuta_Nolo": valuta_matrice_std,
                                 "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
                                 "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
-                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da layout Export", "Origine": "Automatico"
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Importato da layout YML Export", "Origine": "Automatico"
                             })
                             
-                # --- PARSER LAYOUT 1: STRUTTURA VERTICALE STANDARD INTEGRALE (MSC, HAPAG, MESSINA, ECC.) ---
+                # --- PARSER LAYOUT 1: STRUTTURA VERTICALE STANDARD (MSC, HAPAG, ECC.) ---
                 else:
                     riga_container_idx = None
                     for idx, row in raw_df.iterrows():
@@ -225,8 +221,7 @@ with tab_automatico:
                     
                     for v in riga_pod_raw:
                         val_str = str(v).strip()
-                        if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
-                            # MODIFICA: Utilizza la nuova funzione integrale senza alcun troncamento per le celle MSC
+                        if pd.notna(v) and val_str != "" and val_str.upper() != "NAN":
                             ultimo_pod_valido = normalizza_porto_msc(v)
                         riga_pod_pulita.append(ultimo_pod_valido)
                     
@@ -235,7 +230,8 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.values
+                        # CORREZIONE CRITICA: Estrae unicamente la cella d'indice 0 della riga
+                        pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pol = normalizza_porto_msc(pol_cella)
@@ -268,7 +264,7 @@ with tab_automatico:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Mappati i flussi mantenendo le descrizioni intatte.")
+                    st.success(f"Estrazione completata con successo per {compagnia_file}!")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
@@ -279,7 +275,7 @@ with tab_automatico:
 # TAB 3: GESTIONE SPESE PORTO
 # ==========================================
 with tab_spese_porto:
-    st.header("✍️ Inserimento Spese per Porto")
+    st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
     if not df_master.empty:
         lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != "" and p != "SCONOSCIUTO"]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
