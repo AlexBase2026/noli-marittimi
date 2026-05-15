@@ -15,51 +15,24 @@ COMPAGNIE_SUPPORTATE = [
 
 DIZIONARIO_PORTI = {
     # Destinazioni Italiane (POD)
-    "ITGOA": "GENOVA",
-    "ITLIV": "LIVORNO",
-    "ITSPE": "LA SPEZIA",
-    "ITVCE": "VENEZIA",
-    "ITNAP": "NAPOLI",
-    "ITAO1": "ANCONA",
-    "ITSGK": "TRIESTE",
-    "ITCTA": "CATANIA",
-    "ITPMO": "PALERMO",
-    "ITBLA": "CAGLIARI",
-    "ITSAL": "SALERNO",
-    "ITTRS": "TRIESTE",
-    "GENOVA": "GENOVA",
-    "LIVORNO": "LIVORNO",
-    "LA SPEZIA": "LA SPEZIA",
-    "VENEZIA": "VENEZIA",
-    "NAPOLI": "NAPOLI",
+    "ITGOA": "GENOVA", "ITLIV": "LIVORNO", "ITSPE": "LA SPEZIA", "ITVCE": "VENEZIA", 
+    "ITNAP": "NAPOLI", "ITAO1": "ANCONA", "ITSGK": "TRIESTE", "ITCTA": "CATANIA", 
+    "ITPMO": "PALERMO", "ITBLA": "CAGLIARI", "ITSAL": "SALERNO", "ITTRS": "TRIESTE",
+    "GENOVA": "GENOVA", "LIVORNO": "LIVORNO", "LA SPEZIA": "LA SPEZIA", 
+    "VENEZIA": "VENEZIA", "NAPOLI": "NAPOLI", "ANCONA": "ANCONA", "TRIESTE": "TRIESTE",
     
     # Partenze Far East / India (POL)
-    "SHANGHAI": "SHANGHAI",
-    "NINGBO": "NINGBO",
-    "YANTIAN": "YANTIAN",
-    "SHEKOU": "SHEKOU",
-    "QINGDAO": "QINGDAO",
-    "XIAMEN": "XIAMEN",
-    "XINGANG": "XINGANG",
-    "NANSHA": "NANSHA",
-    "CHIWAN": "CHIWAN",
-    "BUSAN": "BUSAN",
-    "SINGAPORE": "SINGAPORE",
-    "PORT KELANG": "PORT KELANG",
-    "NHAVA SHEVA": "NHAVA SHEVA",
-    "MUNDRA": "MUNDRA",
-    "COLOMBO": "COLOMBO",
-    "CHENNAI": "CHENNAI",
-    "SHUNDE": "SHUNDE",
-    "CHONGQING": "CHONGQING",
-    "CHANGSHA": "CHANGSHA",
-    "FUZHOU": "FUZHOU",
+    "SHANGHAI": "SHANGHAI", "NINGBO": "NINGBO", "YANTIAN": "YANTIAN", "SHEKOU": "SHEKOU", 
+    "QINGDAO": "QINGDAO", "XIAMEN": "XIAMEN", "XINGANG": "XINGANG", "NANSHA": "NANSHA", 
+    "CHIWAN": "CHIWAN", "BUSAN": "BUSAN", "SINGAPORE": "SINGAPORE", "PORT KELANG": "PORT KELANG", 
+    "NHAVA SHEVA": "NHAVA SHEVA", "MUNDRA": "MUNDRA", "COLOMBO": "COLOMBO", "CHENNAI": "CHENNAI", 
+    "SHUNDE": "SHUNDE", "CHONGQING": "CHONGQING", "CHANGSHA": "CHANGSHA", "FUZHOU": "FUZHOU", 
     "NANTONG": "NANTONG"
 }
 
 def normalizza_nome_porto(porto_raw):
     testo = str(porto_raw).strip().upper()
-    if not testo or testo == "NAN" or testo == "NONE" or testo == "":
+    if not testo or testo in ["NAN", "NONE", "", "0", "0.0"]:
         return "SCONOSCIUTO"
     
     parole = testo.split()
@@ -118,10 +91,10 @@ with tab_ricerca:
     col1, col2, col3 = st.columns(3)
     with col1:
         elenco_pol = sorted(df_master["POL"].dropna().unique()) if not df_master.empty else []
-        pol_scelto = st.selectbox("Porto di Partenza (POL)", [""] + [p for p in elenco_pol if p != ""])
+        pol_scelto = st.selectbox("Porto di Partenza (POL)", [""] + [p for p in elenco_pol if p != "SCONOSCIUTO"])
     with col2:
         elenco_pod = sorted(df_master["POD"].dropna().unique()) if not df_master.empty else []
-        pod_scelto = st.selectbox("Porto di Destinazione (POD)", [""] + [p for p in elenco_pod if p != ""])
+        pod_scelto = st.selectbox("Porto di Destinazione (POD)", [""] + [p for p in elenco_pod if p != "SCONOSCIUTO"])
     with col3:
         tipo_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"])
         
@@ -166,7 +139,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: PARSER CON CORREZIONE POL/POD INVERTITI
+# TAB 2: CORREZIONE MAPPA DELLE CELLE UNITE PER ORIZZONTALI (YML)
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -187,7 +160,7 @@ with tab_automatico:
             if st.button("Estrai Solo Noli Base"):
                 lista_tariffe = []
                 
-                # --- PARSER LAYOUT 2: MATRICI ORIZZONTALI (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK) ---
+                # --- PARSER LAYOUT 2: GRIGLIE ORIZZONTALI (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK) ---
                 if compagnia_file in ["CMA", "COSCO", "EVERGREEN", "MAERSK", "ONE", "YML"]:
                     riga_container_idx = None
                     for idx, row in raw_df.iterrows():
@@ -199,13 +172,16 @@ with tab_automatico:
                     if riga_container_idx is None:
                         riga_container_idx = 2
                     
-                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].copy()
+                    # 1. Recupero e riempimento automatico in avanti delle celle unite dei POD (riga superiore)
+                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].tolist()
                     riga_pod_pulita = []
+                    ultimo_pod_valido = "SCONOSCIUTO"
                     
                     for v in riga_pod_raw:
-                        # Corretto: La riga in alto contiene i porti italiani di destinazione (POD)
-                        pod_tradotto = normalizza_nome_porto(v)
-                        riga_pod_pulita.append(pod_tradotto)
+                        val_str = str(v).strip()
+                        if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
+                            ultimo_pod_valido = normalizza_nome_porto(v)
+                        riga_pod_pulita.append(ultimo_pod_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
@@ -215,7 +191,7 @@ with tab_automatico:
                         pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        # Corretto: La colonna di sinistra contiene le origini estere di partenza (POL)
+                        # Corretto: Il porto estero di partenza in verticale è il POL
                         pol = normalizza_nome_porto(pol_cella)
                         if pol in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
                             continue
@@ -228,6 +204,7 @@ with tab_automatico:
                             except:
                                 continue
                             
+                            # Corretto: Associa il POD unito riempito in avanti per la colonna corrente
                             pod = riga_pod_pulita[col_idx]
                             tipo_c_raw = riga_cont_pulita[col_idx]
                             
@@ -257,12 +234,15 @@ with tab_automatico:
                     
                     if riga_container_idx is None: riga_container_idx = 2
                     
-                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].copy()
+                    riga_pod_raw = raw_df.iloc[riga_container_idx - 1].tolist()
                     riga_pod_pulita = []
+                    ultimo_pod_valido = "SCONOSCIUTO"
+                    
                     for v in riga_pod_raw:
-                        # In MSC la riga in alto contiene le destinazioni estere (POD)
-                        pod_tradotto = normalizza_nome_porto(v)
-                        riga_pod_pulita.append(pod_tradotto)
+                        val_str = str(v).strip()
+                        if pd.notna(v) and val_str != "" and val_str.upper() != "NAN":
+                            ultimo_pod_valido = normalizza_nome_porto(v)
+                        riga_pod_pulita.append(ultimo_pod_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
@@ -272,7 +252,7 @@ with tab_automatico:
                         pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        # In MSC la colonna di sinistra contiene i porti italiani di imbarco (POL)
+                        # In MSC il porto di imbarco italiano in verticale è il POL
                         pol = normalizza_nome_porto(pol_cella)
                         if pol in ["", "CURRENCY", "PORT", "MANGALORE", "SCONOSCIUTO"]:
                             continue
@@ -300,20 +280,21 @@ with tab_automatico:
                 
                 df_nuovo_standard = pd.DataFrame(lista_tariffe)
                 if not df_nuovo_standard.empty:
-                    # Cancella i vecchi dati dello stesso vettore prima di sovrascrivere per evitare doppioni invertiti
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} record commerciali con coordinate POL/POD corrette.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} record commerciali stabili.")
                     st.rerun()
+                else:
+                    st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
         except Exception as e:
             st.error(f"Errore tecnico: {e}")
 
-# (I TAB 3, 4 e 5 rimangono invariati per la gestione spese per porto e inserimento manuale)
+# (I TAB 3, 4 e 5 rimangono attivi per gestione costi e manutenzione database)
 with tab_spese_porto:
-    st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
+    st.header("✍️ Inserimento Spese per Porto")
     if not df_master.empty:
-        lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != ""]
+        lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != "" and p != "SCONOSCIUTO"]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
         
         st.markdown("---")
