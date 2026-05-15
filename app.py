@@ -13,16 +13,9 @@ COMPAGNIE_SUPPORTATE = [
     "COTUNAV", "MAGUISA"
 ]
 
-# Dizionario di conversione geografica per codici estesi e sigle
-DIZIONARIO_PORTI_GEOGRAFICI = {
-    "ITGOA": "GENOVA", "GENOVA": "GENOVA",
-    "ITLIV": "LIVORNO", "LIVORNO": "LIVORNO",
-    "ITSPE": "LA SPEZIA", "LA SPEZIA": "LA SPEZIA",
-    "ITVCE": "VENEZIA", "VENEZIA": "VENEZIA",
-    "ITNAP": "NAPOLI", "NAPOLI": "NAPOLI",
-    "ITAO1": "ANCONA", "ANCONA": "ANCONA",
-    "ITSGK": "TRIESTE", "TRIESTE": "TRIESTE",
-    "ITSAL": "SALERNO", "SALERNO": "SALERNO"
+DIZIONARIO_PORTI_FISSI = {
+    "ITGOA": "GENOVA", "ITLIV": "LIVORNO", "ITSPE": "LA SPEZIA", 
+    "ITVCE": "VENEZIA", "ITNAP": "NAPOLI", "ITAO1": "ANCONA"
 }
 
 def normalizza_porto_msc(valore_cella):
@@ -34,12 +27,11 @@ def normalizza_porto_msc(valore_cella):
     testo_puro = " ".join(testo.split())
     testo_upper = testo_puro.upper()
     
-    # Prende la prima parola (es. 'ITGOA' da 'ITGOA by MD2')
     parole = testo_upper.split()
     if len(parole) > 0:
         prima_parola = parole[0].replace("-", "").replace("'", "")
-        if prima_parola in DIZIONARIO_PORTI_GEOGRAFICI:
-            return DIZIONARIO_PORTI_GEOGRAFICI[prima_parola]
+        if prima_parola in DIZIONARIO_PORTI_FISSI:
+            return DIZIONARIO_PORTI_FISSI[prima_parola]
             
     return testo_puro
 
@@ -131,10 +123,10 @@ with tab_ricerca:
             
             st.dataframe(pd.DataFrame(tabella_visiva), use_container_width=True)
         else:
-            st.warning("Nessuna tariffa corrispondente trovata.")
+            st.warning("Nessuna tariffa corrispondente trouvata.")
 
 # ==========================================
-# TAB 2: PARSER CON PULIZIA AUTOMATICA COMPLETA DEL POL
+# TAB 2: PARSER CON CORREZIONE PUNTAMENTO EXPLICITO CELLA O
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -174,7 +166,6 @@ with tab_automatico:
                     for v in riga_input_raw:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
-                            # Applica la normalizzazione con la nuova regola per estrarre la città pulita
                             ultimo_porto_valido = normalizza_porto_msc(v)
                         riga_porti_alta.append(ultimo_porto_valido)
                     
@@ -182,24 +173,22 @@ with tab_automatico:
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                     
                     for _, row in dati_prezzi.iterrows():
-                        if len(row.values) == 0: continue
-                        pol_cella = row.values
+                        # CORREZIONE PARSER 2: Puntiamo esplicitamente alla sola cella 0 (Colonna A)
+                        pol_cella = row.iloc[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        # Il porto estero rimane come destinazione (POD)
                         pod = str(pol_cella).strip().upper()
                         if pod in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
                             continue
                         
                         for col_idx in range(1, len(row)):
-                            prezzo_raw = row.values[col_idx]
+                            prezzo_raw = row.iloc[col_idx]
                             try:
                                 prezzo = float(prezzo_raw)
                                 if pd.isna(prezzo) or prezzo <= 0: continue
                             except:
                                 continue
                             
-                            # Il porto italiano ripulito viene registrato come POL
                             pol = riga_porti_alta[col_idx]
                             tipo_c_raw = riga_cont_pulita[col_idx]
                             
@@ -243,8 +232,8 @@ with tab_automatico:
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                     
                     for _, row in dati_prezzi.iterrows():
-                        if len(row.values) == 0: continue
-                        pol_cella = row.values
+                        # CORREZIONE PARSER 1: Puntiamo esplicitamente alla sola cella 0 (Colonna A)
+                        pol_cella = row.iloc[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pol = normalizza_porto_msc(pol_cella)
@@ -252,7 +241,7 @@ with tab_automatico:
                             continue
                         
                         for col_idx in range(1, len(row)):
-                            prezzo_raw = row.values[col_idx]
+                            prezzo_raw = row.iloc[col_idx]
                             try:
                                 prezzo = float(prezzo_raw)
                                 if pd.isna(prezzo) or prezzo <= 0: continue
@@ -277,7 +266,7 @@ with tab_automatico:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Mappati i flussi Export con porti italiani ripuliti (GENOVA, LA SPEZIA, ecc.).")
+                    st.success(f"Estrazione completata con successo per {compagnia_file}!")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
@@ -288,7 +277,7 @@ with tab_automatico:
 # TAB 3: GESTIONE SPESE PORTO
 # ==========================================
 with tab_spese_porto:
-    st.header("✍️ Inserimento Spese per Porto")
+    st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
     if not df_master.empty:
         lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != "" and p != "SCONOSCIUTO"]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
@@ -353,7 +342,7 @@ with tab_spese_porto:
                     df_modificato.loc[condizione, "Note"] = str(val_note_libere)
                     df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
             salva_database(df_modificato)
-            st.success("Database aggiornato applicando i totali!")
+            st.success("Database aggiornato!")
             st.rerun()
 
 with tab_manuale_singolo:
@@ -405,14 +394,14 @@ with tab_manuale_singolo:
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
-                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
-                st.success("Tariffa spot salvata correttamente!")
+                salva_database(pd.concat([df_master, nueva_riga], ignore_index=True))
+                st.success("Tariffa spot salvata!")
                 st.rerun()
 
 with tab_database:
     st.header("Visualizzazione Tabellare di Controllo (Dati nel CSV)")
     st.dataframe(df_master, use_container_width=True)
-    if st.button("🗑 Svuota Intero Database"):
+    if st.button("🗑 Svuota Database"):
         if os.path.exists(DB_FILE):
             os.remove(DB_FILE)
         st.rerun()
