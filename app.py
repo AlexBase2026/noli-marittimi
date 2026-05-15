@@ -122,7 +122,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: PARSER CORRETTO SENZA KEYWORD ARGUMENTS
+# TAB 2: PARSER CON CORREZIONE PUNTAMENTO INDICE [0]
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -163,7 +163,6 @@ with tab_automatico:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
                             ultimo_porto_valido = normalizza_porto_msc(v)
-                        # CORREZIONE: Sintassi dell'append pulita senza assegnazione interna
                         riga_porti_alta.append(ultimo_porto_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
@@ -171,7 +170,8 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.values
+                        # CORREZIONE SUL FILE YML: Isoliamo unicamente la cella d'indice 0 (Colonna A)
+                        pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pod = normalizza_porto_msc(pol_cella)
@@ -230,7 +230,8 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_cella = row.values
+                        # CORREZIONE SUL FILE MSC: Isoliamo unicamente la cella d'indice 0 (Colonna A)
+                        pol_cella = row.values[0]
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pol = normalizza_porto_msc(pol_cella)
@@ -391,7 +392,7 @@ with tab_manuale_singolo:
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
-                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
+                salva_database(pd.concat([df_master, nueva_riga], ignore_index=True))
                 st.success("Tariffa spot salvata correttamente!")
                 st.rerun()
 
