@@ -95,7 +95,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: CARICAMENTO MATRICE EXCEL (CORRETTO)
+# TAB 2: CARICAMENTO MATRICE EXCEL
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Automatica Noli Base da Matrice")
@@ -136,10 +136,9 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 for _, row in dati_prezzi.iterrows():
-                    # CORREZIONE CRITICA: Estrazione sicura della sola cella del porto POL (indice 0)
                     if len(row.values) == 0:
                         continue
-                    pol_raw = row.values[0]
+                    pol_raw = row.values
                     if pd.isna(pol_raw) or pol_raw is None:
                         continue
                     
@@ -161,7 +160,7 @@ with tab_automatico:
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
                         if "(" in pod:
-                            pod = pod.split("(")[0].strip()
+                            pod = pod.split("(").strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
@@ -183,7 +182,7 @@ with tab_automatico:
             st.error(f"Errore durante l'estrazione: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO MOLTIPLICATORI
+# TAB 3: GESTIONE SPESE PORTO (RIPRISTINATI I TOTALI VISIVI METRIC)
 # ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
@@ -200,7 +199,12 @@ with tab_spese_porto:
             v_thc = st.number_input("THC (base 20FT)", min_value=0.0, step=5.0)
             v_isps = st.number_input("ISPS (base 20FT)", min_value=0.0, step=1.0)
             v_lilo = st.number_input("LILO (base 20FT)", min_value=0.0, step=5.0)
+            
             totale_imb_calcolato = v_thc + v_isps + v_lilo
+            # REINSERITI I CONTATORI GRAFICI RICHIESTI
+            st.write(" ")
+            st.metric("Totale Imbarco (20FT / 40FT / 40HC)", f"{curr_imb_std} {totale_imb_calcolato:.2f}")
+            
         with col_an2:
             st.subheader("📈 Surcharges / Addizionali (Raddoppia per 40')")
             curr_add = st.radio("Valuta Addizionali / Surcharges:", ["USD ($)", "EUR (€)"], key="c_add", horizontal=True)
@@ -210,7 +214,13 @@ with tab_spese_porto:
             v_eca = st.number_input("ECA (base 20FT)", min_value=0.0, step=5.0)
             v_ets = st.number_input("ETS (base 20FT)", min_value=0.0, step=1.0)
             v_feu = st.number_input("FEU (base 20FT)", min_value=0.0, step=5.0)
+            
             totale_add_calcolato = v_efs + v_brc + v_eca + v_ets + v_feu
+            # RIPRISTINATA L'ANTEPRIMA DELLE SURCHARGES SDOPPIATE A SCHERMO
+            st.write(" ")
+            st.metric("Totale Addizionali 20FT", f"{curr_add_std} {totale_add_calcolato:.2f}")
+            st.metric("Totale Addizionali 40FT / 40HC (Automatico x2)", f"{curr_add_std} {totale_add_calcolato * 2:.2f}")
+            
         with col_an3:
             st.subheader("📄 Costo Spese Documentali")
             v_bl = st.number_input("Costo Documento BL (€)", min_value=0.0, step=5.0)
@@ -252,7 +262,7 @@ with tab_spese_porto:
                     df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
             
             salva_database(df_modificato)
-            st.success("Database aggiornato applicando il raddoppio automatico sui container da 40FT/HC!")
+            st.success("Database aggiornato applicando i totali!")
             st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
