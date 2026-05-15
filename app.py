@@ -5,20 +5,20 @@ import os
 # Configurazione iniziale dell'interfaccia web aziendale
 st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_icon="🚢")
 
-DB_FILE = "database_noli_ibrido_v2.csv"
+DB_FILE = "database_noli_msc_specifico.csv"
 
 def carica_database():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
         df['Validità'] = df['Validità'].astype(str).fillna("")
-        for col in ["Nolo", "Addizionali", "Totale_Nolo", "Spese_Imbarco"]:
+        for col in ["Nolo", "Addizionali", "Totale_Nolo", "Spese_Imbarco", "BL"]:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
         return df
     else:
         return pd.DataFrame(columns=[
             "POL", "POD", "Compagnia", "Container", 
             "Nolo", "Addizionali", "Descrizione_Addizionali", "Totale_Nolo", 
-            "Spese_Imbarco", "Descrizione_Spese_Imbarco", "Free_Time", 
+            "Spese_Imbarco", "Descrizione_Spese_Imbarco", "BL", "Free_Time", 
             "Validità", "Note", "Origine"
         ])
 
@@ -27,24 +27,23 @@ def salva_database(df):
 
 df_master = carica_database()
 
-# --- INTERFACCIA GRAFICA ---
-st.title("🚢 Sistema Integrato Gestione Noli Marittimi")
-st.write("Applicazione aziendale centralizzata per l'analisi, l'importazione e la modifica delle tariffe di spedizione.")
+st.title("🚢 Sistema Gestione Noli Marittimi - Configurazione MSC")
+st.write("Calcolo automatico basato sulle specifiche MSC: Imbarco (THC, ISPS, LILO), Surcharges (EFS, BRC, ECA, ETS, FEU) e gestione della tassa BL.")
 
-# Definizione dei 5 Tab (Ripristinato Inserimento Manuale Singolo)
+# Definizione dei 5 Tab ottimizzati
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
     "🔍 Ricerca Tariffe", 
     "📂 1. Carica Matrice Excel", 
-    "✍️ 2. Gestione Spese per Porto",
-    "➕ 3. Inserimento Manuale Singolo",
+    "✍️ 2. Gestione Spese MSC per Porto",
+    "➕ 3. Inserimento Manuale Spot",
     "📊 Archivio Database Completo"
 ])
 
 # ==========================================
-# TAB 1: INTERFACCIA DI RICERCA
+# TAB 1: INTERFACCIA DI RICERCA PER I COLLEGHI
 # ==========================================
 with tab_ricerca:
-    st.header("Consultazione Tariffe Condivise")
+    st.header("Consultazione Tariffe e Dettaglio Costi")
     col1, col2, col3 = st.columns(3)
     with col1:
         elenco_pol = sorted(df_master["POL"].dropna().unique()) if not df_master.empty else []
@@ -63,15 +62,17 @@ with tab_ricerca:
         ]
         if not risultati.empty:
             st.success("Tariffe individuate (ordinate per Totale Nolo crescente):")
+            
+            # Mostra anche la nuova colonna BL non sommata
             mostra_tabella = risultati[[
                 "Compagnia", "Nolo", "Addizionali", "Descrizione_Addizionali", 
                 "Totale_Nolo", "Spese_Imbarco", "Descrizione_Spese_Imbarco", 
-                "Free_Time", "Validità", "Note"
+                "BL", "Free_Time", "Validità", "Note"
             ]].copy()
             st.dataframe(
                 mostra_tabella.style.format({
                     "Nolo": "€ {:.2f}", "Addizionali": "€ {:.2f}",
-                    "Totale_Nolo": "€ {:.2f}", "Spese_Imbarco": "€ {:.2f}"
+                    "Totale_Nolo": "€ {:.2f}", "Spese_Imbarco": "€ {:.2f}", "BL": "€ {:.2f}"
                 }), use_container_width=True
             )
         else:
@@ -82,8 +83,6 @@ with tab_ricerca:
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Automatica Noli Base da Matrice")
-    st.write("Carica i listini a griglia. Questo modulo estrarrà i prezzi base azzerando spese e addizionali.")
-    
     compagnia_file = st.selectbox("Compagnia Marittima", ["MSC", "CMA", "HAPAG"])
     validita_foglio = st.text_input("Validità Temporale Foglio", "01/05/2026-31/05/2026", key="val_auto")
     file_caricato = st.file_uploader("Trascina il file Excel (.xlsx)", type=["xlsx", "xls"])
@@ -117,7 +116,7 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 for _, row in dati_prezzi.iterrows():
-                    pol_raw = row.iloc[0]
+                    pol_raw = row.iloc
                     if pd.isna(pol_raw):
                         continue
                     pol = str(pol_raw).strip().upper()
@@ -138,14 +137,14 @@ with tab_automatico:
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
                         if "(" in pod:
-                            pod = pod.split("(")[0].strip()
+                            pod = pod.split("(").strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
                                 "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Container": container_std,
                                 "Nolo": prezzo, "Addizionali": 0.0, "Descrizione_Addizionali": "", 
                                 "Totale_Nolo": prezzo, "Spese_Imbarco": 0.0, "Descrizione_Spese_Imbarco": "", 
-                                "Free_Time": "", "Validità": validita_foglio, "Note": "Importato da matrice", "Origine": "Automatico"
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": "Importato da matrice", "Origine": "Automatico"
                             })
                 
                 df_nuovo_standard = pd.DataFrame(lista_tariffe)
@@ -159,92 +158,134 @@ with tab_automatico:
             st.error(f"Errore durante l'estrazione: {e}")
 
 # ==========================================
-# TAB 3: AGGIORNAMENTO DI MASSA DELLE SPESE PER POL
+# TAB 3: CONFIGURAZIONE SPECIFICA MSC PER PORTO (AGGIORNATO)
 # ==========================================
 with tab_spese_porto:
-    st.header("✍️ Gestione Spese e Addizionali Localizzate per Porto")
-    st.write("Aggiorna massivamente le spese locali e le addizionali per tutte le rotte che partono dallo stesso POL.")
+    st.header("✍️ Inserimento Spese Specifiche MSC per Porto")
+    st.write("Scomponi i costi locali e le sottomisure tariffarie. I totali e le descrizioni si aggiorneranno da soli.")
     
     if not df_master.empty:
         lista_pol_esistenti = sorted(df_master["POL"].unique())
-        pol_selezionato_spese = st.selectbox("Scegli il porto di partenza (POL) da valorizzare", lista_pol_esistenti)
-        container_selezionato_spese = st.selectbox("Seleziona tipo container per l'aggiornamento di massa", ["20FT", "40FT", "40HC", "TUTTI"])
+        pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
+        container_selezionato_spese = st.selectbox("Applica al tipo container", ["20FT", "40FT", "40HC", "TUTTI"])
         
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            val_spese_imb = st.number_input("Spese Imbarco (€/$)", min_value=0.0, step=5.0, key="sp_imb_mas")
-            desc_spese_imb = st.text_input("Descrizione Spese Imbarco", "THC + ISPS locale", key="desc_imb_mas")
-            val_free_time = st.text_input("Free Time dedicato", "14 giorni det/dem", key="ft_mas")
-        with col_s2:
-            val_addizionali = st.number_input("Addizionali Correttive (€/$)", min_value=0.0, step=5.0, key="add_mas")
-            desc_addizionali = st.text_input("Descrizione Addizionali", "EFS + BRC", key="desc_add_mas")
-            val_note_libere = st.text_input("Note specifiche per questo porto", "Soggetto a variazioni", key="note_mas")
+        st.markdown("---")
+        col_an1, col_an2, col_an3 = st.columns(3)
+        
+        with col_an1:
+            st.subheader("🏢 Spese Imbarco Locali")
+            v_thc = st.number_input("THC (€/$)", min_value=0.0, step=5.0)
+            v_isps = st.number_input("ISPS (€/$)", min_value=0.0, step=1.0)
+            v_lilo = st.number_input("LILO (€/$)", min_value=0.0, step=5.0)
             
-        if st.button(f"Applica Costi Massivi a {pol_selezionato_spese}"):
+            totale_imb_calcolato = v_thc + v_isps + v_lilo
+            st.metric("Totale Spese Imbarco", f"€ {totale_imb_calcolato:.2f}")
+            
+        with col_an2:
+            st.subheader("📈 Surcharges / Addizionali")
+            v_efs = st.number_input("EFS (€/$)", min_value=0.0, step=5.0)
+            v_brc = st.number_input("BRC (€/$)", min_value=0.0, step=5.0)
+            v_eca = st.number_input("ECA (€/$)", min_value=0.0, step=5.0)
+            v_ets = st.number_input("ETS (€/$)", min_value=0.0, step=1.0)
+            v_feu = st.number_input("FEU (€/$)", min_value=0.0, step=5.0)
+            
+            totale_add_calcolato = v_efs + v_brc + v_eca + v_ets + v_feu
+            st.metric("Totale Addizionali", f"€ {totale_add_calcolato:.2f}")
+            
+        with col_an3:
+            st.subheader("📄 Costo Spese Documentali")
+            # CAMPO BL: Richiesto autonomo non sommato al totale nolo
+            v_bl = st.number_input("Costo Documento BL (€/$)", min_value=0.0, step=5.0, help="Tassa fissa per polizza di carico, esclusa dal calcolo totale nolo.")
+            st.write(" ")
+            val_free_time = st.text_input("Free Time (Giorni det/dem)", "14 giorni free")
+            val_note_libere = st.text_input("Note specifiche rotta", "Valido per nolo in vigore")
+            
+        if st.button(f"Calcola e Applica a tutte le rotte di {pol_selezionato_spese}"):
             df_modificato = df_master.copy()
             condizione = (df_modificato["POL"] == pol_selezionato_spese)
             if container_selezionato_spese != "TUTTI":
                 condizione = condizione & (df_modificato["Container"] == container_selezionato_spese)
                 
             if not df_modificato[condizione].empty:
-                df_modificato.loc[condizione, "Spese_Imbarco"] = val_spese_imb
-                df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = desc_spese_imb
-                df_modificato.loc[condizione, "Addizionali"] = val_addizionali
-                df_modificato.loc[condizione, "Descrizione_Addizionali"] = desc_addizionali
+                # Creazione automatica dei riepiloghi descrittivi basati sui nuovi campi
+                testo_imb = f"THC:{v_thc} ISPS:{v_isps} LILO:{v_lilo}"
+                
+                lista_add_descr = []
+                if v_efs > 0: lista_add_descr.append(f"EFS:{v_efs}")
+                if v_brc > 0: lista_add_descr.append(f"BRC:{v_brc}")
+                if v_eca > 0: lista_add_descr.append(f"ECA:{v_eca}")
+                if v_ets > 0: lista_add_descr.append(f"ETS:{v_ets}")
+                if v_feu > 0: lista_add_descr.append(f"FEU:{v_feu}")
+                testo_add = " | ".join(lista_add_descr) if lista_add_descr else "Nessuna surcharge"
+                
+                # Salvataggio nel database centrale
+                df_modificato.loc[condizione, "Spese_Imbarco"] = totale_imb_calcolato
+                df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = testo_imb
+                df_modificato.loc[condizione, "Addizionali"] = totale_add_calcolato
+                df_modificato.loc[condizione, "Descrizione_Addizionali"] = testo_add
+                df_modificato.loc[condizione, "BL"] = v_bl  # Scrive il valore BL inserito
                 df_modificato.loc[condizione, "Free_Time"] = val_free_time
                 df_modificato.loc[condizione, "Note"] = val_note_libere
-                df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + val_addizionali
+                
+                # Calcolo finale: Nolo totale = Nolo base + Surcharges (il campo BL rimane escluso dal calcolo)
+                df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + totale_add_calcolato
                 
                 salva_database(df_modificato)
-                st.success(f"Aggiornamento di massa completato per {pol_selezionato_spese}!")
+                st.success(f"Porto di {pol_selezionato_spese} configurato! Calcolo totali eseguito.")
                 st.rerun()
     else:
-        st.info("Archivio vuoto. Carica prima un listino o fai un inserimento singolo.")
+        st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
 
 # ==========================================
-# TAB 4: RIPRISTINATO - INSERIMENTO MANUALE SINGOLO / QUOTAZIONI SPOT
+# TAB 4: INSERIMENTO MANUALE ANALITICO SPOT CON NUOVI CAMPI
 # ==========================================
 with tab_manuale_singolo:
-    st.header("➕ Inserimento Manuale Singola Tariffa Spot")
-    st.write("Usa questo modulo per registrare una tariffa singola non presente nei listini automatici o per aggiungere un porto nuovo.")
-    
-    with st.form("Form Inserimento Singolo"):
+    st.header("➕ Inserimento Manuale Singola Tariffa Spot Scomposta")
+    with st.form("Form Inserimento Analitico"):
         col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1:
             man_pol = st.text_input("Porto POL (Partenza)").upper().strip()
             man_carrier = st.text_input("Compagnia (es. MSC)").upper().strip()
-            man_nolo = st.number_input("Nolo Base (€)", min_value=0.0, step=50.0, key="nolo_sin")
-            man_spese = st.number_input("Spese Imbarco (€)", min_value=0.0, step=10.0, key="spese_sin")
-            man_desc_spese = st.text_input("Descrizione Spese Imbarco", key="desc_spese_sin")
+            man_nolo = st.number_input("Nolo Base (€)", min_value=0.0, step=50.0)
+            st.markdown("**Spese Locali Imbarco**")
+            man_thc = st.number_input("THC (€)", min_value=0.0, step=5.0)
+            man_isps = st.number_input("ISPS (€)", min_value=0.0, step=1.0)
+            man_lilo = st.number_input("LILO (€)", min_value=0.0, step=5.0)
         with col_m2:
             man_pod = st.text_input("Porto POD (Destinazione)").upper().strip()
-            man_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"], key="cont_sin")
-            man_addizionali = st.number_input("Addizionali (€)", min_value=0.0, step=10.0, key="add_sin")
-            man_desc_addizionali = st.text_input("Descrizione Add.li", key="desc_add_sin")
-            man_freetime = st.text_input("Free Time", key="ft_sin")
+            man_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"])
+            st.markdown("**Surcharges / Addizionali**")
+            man_efs = st.number_input("EFS (€)", min_value=0.0, step=5.0)
+            man_brc = st.number_input("BRC (€)", min_value=0.0, step=5.0)
+            man_eca = st.number_input("ECA (€)", min_value=0.0, step=5.0)
+            man_ets = st.number_input("ETS (€)", min_value=0.0, step=1.0)
+            man_feu = st.number_input("FEU (€)", min_value=0.0, step=5.0)
         with col_m3:
-            man_validita = st.text_input("Data Validità", "01/05/2026-31/05/2026", key="val_sin")
-            man_note = st.text_area("Campo Note Libero", height=150, key="note_sin")
+            st.markdown("**Spese Documentali e Note**")
+            man_bl = st.number_input("Costo Polizza BL (€)", min_value=0.0, step=5.0, help="Non viene inserito nel calcolo del totale nolo.")
+            man_freetime = st.text_input("Free Time dedicato")
+            man_validita = st.text_input("Data Validità", "01/05/2026-31/05/2026")
+            man_note = st.text_area("Campo Note Libero", height=100)
             
-        st.write(" ")
-        st.write(" ")
-        invia_form = st.form_submit_button("Salva Singola Tariffa Spot")
-        
+        invia_form = st.form_submit_button("Salva Tariffa Spot")
         if invia_form:
             if man_pol and man_pod and man_carrier:
-                totale_calcolato = man_nolo + man_addizionali
+                tot_add_sin = man_efs + man_brc + man_eca + man_ets + man_feu
+                tot_imb_sin = man_thc + man_isps + man_lilo
+                tot_nolo_sin = man_nolo + tot_add_sin
+                
+                testo_add_sin = f"EFS:{man_efs} BRC:{man_brc} ECA:{man_eca} ETS:{man_ets} FEU:{man_feu}"
+                testo_imb_sin = f"THC:{man_thc} ISPS:{man_isps} LILO:{man_lilo}"
+                
                 nuova_riga = pd.DataFrame([{
                     "POL": man_pol, "POD": man_pod, "Compagnia": man_carrier, "Container": man_container,
-                    "Nolo": man_nolo, "Addizionali": man_addizionali, "Descrizione_Addizionali": man_desc_addizionali,
-                    "Totale_Nolo": totale_calcolato, "Spese_Imbarco": man_spese, "Descrizione_Spese_Imbarco": man_desc_spese,
-                    "Free_Time": man_freetime, "Validità": man_validita, "Note": man_note, "Origine": "Manuale"
+                    "Nolo": man_nolo, "Addizionali": tot_add_sin, "Descrizione_Addizionali": testo_add_sin,
+                    "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Descrizione_Spese_Imbarco": testo_imb_sin,
+                    "BL": man_bl, "Free_Time": man_freetime, "Validità": man_validita, "Note": man_note, "Origine": "Manuale"
                 }])
-                df_aggiornato = pd.concat([df_master, nuova_riga], ignore_index=True)
-                salva_database(df_aggiornato)
-                st.success(f"Tariffa salvata! Aggiunta correttamente la tratta {man_pol} ➡️ {man_pod}.")
+                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
+                st.success("Tariffa spot salvata calcolando automaticamente i totali!")
                 st.rerun()
-            else:
-                st.error("I campi POL, POD e Compagnia sono obbligatori per il salvataggio.")
 
 # ==========================================
 # TAB 5: ARCHIVIO E MANUTENZIONE DATABASE
