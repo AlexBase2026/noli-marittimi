@@ -4,17 +4,14 @@ import os
 
 st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_icon="🚢")
 
-# Cambiamo nome al file database per forzare la riscrittura pulita di tutte le colonne richieste
 DB_FILE = "database_noli_analitico_valute.csv"
 
 def carica_database():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
-        # Forza le colonne di testo ad essere stringhe pulite
         for col_testo in ["POL", "POD", "Compagnia", "Container", "Descrizione_Addizionali", "Descrizione_Spese_Imbarco", "Free_Time", "Validità", "Note", "Origine", "Valuta_Nolo", "Valuta_Addizionali", "Valuta_Spese_Imbarco"]:
             if col_testo in df.columns:
                 df[col_testo] = df[col_testo].astype(str).replace("nan", "")
-        # Forza le colonne numeriche
         for col_num in ["Nolo", "Addizionali", "Totale_Nolo", "Spese_Imbarco", "BL"]:
             if col_num in df.columns:
                 df[col_num] = pd.to_numeric(df[col_num], errors='coerce').fillna(0.0)
@@ -34,7 +31,7 @@ def salva_database(df):
 
 df_master = carica_database()
 
-st.title("🚢 Sistema Gestione Noli Marittimi - Configurazione Valute")
+st.title("🚢 Sistema Gestione Noli Marittimi - Automazione Moltiplicatori Costi")
 
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
     "🔍 Ricerca Tariffe", 
@@ -45,7 +42,7 @@ tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database 
 ])
 
 # ==========================================
-# TAB 1: INTERFACCIA DI RICERCA COMPLETA
+# TAB 1: INTERFACCIA DI RICERCA
 # ==========================================
 with tab_ricerca:
     st.header("Consultazione Tariffe e Scomposizione Valute")
@@ -79,7 +76,6 @@ with tab_ricerca:
                 else:
                     totale_str = f"{sym_nolo} {r['Nolo']:.2f} + {sym_add} {r['Addizionali']:.2f}"
                 
-                # Visualizzazione esplicita dei totali e delle descrizioni richieste
                 tabella_visiva.append({
                     "Compagnia": r["Compagnia"],
                     "Nolo Base": f"{sym_nolo} {r['Nolo']:.2f}",
@@ -140,7 +136,7 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 for _, row in dati_prezzi.iterrows():
-                    pol_raw = row.values[0] if len(row.values) > 0 else None
+                    pol_raw = row.values if len(row.values) > 0 else None
                     if pd.isna(pol_raw) or pol_raw is None:
                         continue
                     
@@ -162,7 +158,7 @@ with tab_automatico:
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
                         if "(" in pod:
-                            pod = pod.split("(")[0].strip()
+                            pod = pod.split("(").strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
@@ -184,83 +180,85 @@ with tab_automatico:
             st.error(f"Errore durante l'estrazione: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO CON LOGICA SALVATAGGIO CORRETTA
+# TAB 3: GESTIONE SPESE PORTO CON LOGICA MOLTIPLICATORI 40FT/HC
 # ==========================================
 with tab_spese_porto:
-    st.header("✍️ Inserimento Spese Specifiche MSC per Porto e Scelta Valute")
+    st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
+    st.write("Inserisci i valori relativi al 20FT. Il sistema calcolerà in automatico i 40FT e 40HC (Imbarco fisso, Addizionali raddoppiate).")
+    
     if not df_master.empty:
         lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != ""]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
-        container_selezionato_spese = st.selectbox("Applica al tipo container", ["20FT", "40FT", "40HC", "TUTTI"])
         
         st.markdown("---")
         col_an1, col_an2, col_an3 = st.columns(3)
         with col_an1:
-            st.subheader("🏢 Spese Imbarco Locali")
+            st.subheader("🏢 Spese Imbarco Locali (Valore Fisso)")
             curr_imb = st.radio("Valuta Spese Imbarco:", ["EUR (€)", "USD ($)"], key="c_imb", horizontal=True)
             curr_imb_std = "EUR" if "EUR" in curr_imb else "USD"
-            v_thc = st.number_input("THC", min_value=0.0, step=5.0)
-            v_isps = st.number_input("ISPS", min_value=0.0, step=1.0)
-            v_lilo = st.number_input("LILO", min_value=0.0, step=5.0)
+            v_thc = st.number_input("THC (base 20FT)", min_value=0.0, step=5.0)
+            v_isps = st.number_input("ISPS (base 20FT)", min_value=0.0, step=1.0)
+            v_lilo = st.number_input("LILO (base 20FT)", min_value=0.0, step=5.0)
             totale_imb_calcolato = v_thc + v_isps + v_lilo
-            st.metric("Totale Spese Imbarco Calcolato", f"{curr_imb_std} {totale_imb_calcolato:.2f}")
         with col_an2:
-            st.subheader("📈 Surcharges / Addizionali")
+            st.subheader("📈 Surcharges / Addizionali (Raddoppia per 40')")
             curr_add = st.radio("Valuta Addizionali / Surcharges:", ["USD ($)", "EUR (€)"], key="c_add", horizontal=True)
             curr_add_std = "USD" if "USD" in curr_add else "EUR"
-            v_efs = st.number_input("EFS", min_value=0.0, step=5.0)
-            v_brc = st.number_input("BRC", min_value=0.0, step=5.0)
-            v_eca = st.number_input("ECA", min_value=0.0, step=5.0)
-            v_ets = st.number_input("ETS", min_value=0.0, step=1.0)
-            v_feu = st.number_input("FEU", min_value=0.0, step=5.0)
+            v_efs = st.number_input("EFS (base 20FT)", min_value=0.0, step=5.0)
+            v_brc = st.number_input("BRC (base 20FT)", min_value=0.0, step=5.0)
+            v_eca = st.number_input("ECA (base 20FT)", min_value=0.0, step=5.0)
+            v_ets = st.number_input("ETS (base 20FT)", min_value=0.0, step=1.0)
+            v_feu = st.number_input("FEU (base 20FT)", min_value=0.0, step=5.0)
             totale_add_calcolato = v_efs + v_brc + v_eca + v_ets + v_feu
-            st.metric("Totale Addizionali Calcolato", f"{curr_add_std} {totale_add_calcolato:.2f}")
         with col_an3:
-            st.subheader("📄 Costo Spese Documentali (Sempre EUR)")
+            st.subheader("📄 Costo Spese Documentali")
             v_bl = st.number_input("Costo Documento BL (€)", min_value=0.0, step=5.0)
             st.write(" ")
             val_free_time = st.text_input("Free Time (Giorni det/dem)", "14 giorni free")
             val_note_libere = st.text_input("Note specifiche rotta", "Valido per nolo in vigore")
             
-        if st.button(f"Calcola e Applica a tutte le rotte di {pol_selezionato_spese}"):
+        if st.button(f"Calcola Automatismi e Applica a {pol_selezionato_spese}"):
             df_modificato = df_master.copy()
             
-            # Applichiamo i filtri per individuare le righe da sovrascrivere
-            condizione = (df_modificato["POL"] == pol_selezionato_spese)
-            if container_selezionato_spese != "TUTTI":
-                condizione = condizione & (df_modificato["Container"] == container_selezionato_spese)
+            # --- LOGICA APPLICAZIONE AUTOMATICA DIVISA PER CONTAINER ---
+            for tipo_c in ["20FT", "40FT", "40HC"]:
+                condizione = (df_modificato["POL"] == pol_selezionato_spese) & (df_modificato["Container"] == tipo_c)
                 
-            if not df_modificato[condizione].empty:
-                # Costruzione delle stringhe descrittive
-                testo_imb = f"THC:{v_thc} | ISPS:{v_isps} | LILO:{v_lilo}"
-                
-                lista_add_descr = []
-                if v_efs > 0: lista_add_descr.append(f"EFS:{v_efs}")
-                if v_brc > 0: lista_add_descr.append(f"BRC:{v_brc}")
-                if v_eca > 0: lista_add_descr.append(f"ECA:{v_eca}")
-                if v_ets > 0: lista_add_descr.append(f"ETS:{v_ets}")
-                if v_feu > 0: lista_add_descr.append(f"FEU:{v_feu}")
-                testo_add = " + ".join(lista_add_descr) if lista_add_descr else "Nessuna surcharge"
-                
-                # CORREZIONE CRITICA: Assegnazione esplicita e diretta dei totali e delle descrizioni richieste
-                df_modificato.loc[condizione, "Spese_Imbarco"] = float(totale_imb_calcolato)
-                df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = str(testo_imb)
-                df_modificato.loc[condizione, "Valuta_Spese_Imbarco"] = str(curr_imb_std)
-                
-                df_modificato.loc[condizione, "Addizionali"] = float(totale_add_calcolato)
-                df_modificato.loc[condizione, "Descrizione_Addizionali"] = str(testo_add)
-                df_modificato.loc[condizione, "Valuta_Addizionali"] = str(curr_add_std)
-                
-                df_modificato.loc[condizione, "BL"] = float(v_bl)
-                df_modificato.loc[condizione, "Free_Time"] = str(val_free_time)
-                df_modificato.loc[condizione, "Note"] = str(val_note_libere)
-                
-                # Ricalcolo matematico del nolo totale cumulato (Base + Surcharges)
-                df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(totale_add_calcolato)
-                
-                salva_database(df_modificato)
-                st.success(f"Database salvato! Totale Imbarco ({totale_imb_calcolato}) e Totale Addizionali ({totale_add_calcolato}) registrati con successo per {pol_selezionato_spese}.")
-                st.rerun()
+                if not df_modificato[condizione].empty:
+                    # Regola: 20FT mantiene i valori base, 40FT/HC raddoppiano le addizionali, imbarco resta uguale
+                    moltiplicatore_add = 1.0 if tipo_c == "20FT" else 2.0
+                    
+                    imb_riga = totale_imb_calcolato
+                    add_riga = totale_add_calcolato * moltiplicatore_add
+                    
+                    # Generazione delle stringhe descrittive specifiche per tipo container
+                    testo_imb = f"THC:{v_thc} | ISPS:{v_isps} | LILO:{v_lilo}"
+                    
+                    lista_add_descr = []
+                    if v_efs > 0: lista_add_descr.append(f"EFS:{v_efs * moltiplicatore_add}")
+                    if v_brc > 0: lista_add_descr.append(f"BRC:{v_brc * moltiplicatore_add}")
+                    if v_eca > 0: lista_add_descr.append(f"ECA:{v_eca * moltiplicatore_add}")
+                    if v_ets > 0: lista_add_descr.append(f"ETS:{v_ets * moltiplicatore_add}")
+                    if v_feu > 0: lista_add_descr.append(f"FEU:{v_feu * moltiplicatore_add}")
+                    testo_add = " + ".join(lista_add_descr) if lista_add_descr else "Nessuna surcharge"
+                    
+                    # Salvataggio dati differenziati per riga nel CSV
+                    df_modificato.loc[condizione, "Spese_Imbarco"] = float(imb_riga)
+                    df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = str(testo_imb)
+                    df_modificato.loc[condizione, "Valuta_Spese_Imbarco"] = str(curr_imb_std)
+                    
+                    df_modificato.loc[condizione, "Addizionali"] = float(add_riga)
+                    df_modificato.loc[condizione, "Descrizione_Addizionali"] = str(testo_add)
+                    df_modificato.loc[condizione, "Valuta_Addizionali"] = str(curr_add_std)
+                    
+                    df_modificato.loc[condizione, "BL"] = float(v_bl)
+                    df_modificato.loc[condizione, "Free_Time"] = str(val_free_time)
+                    df_modificato.loc[condizione, "Note"] = str(val_note_libere)
+                    df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
+            
+            salva_database(df_modificato)
+            st.success(f"Porto di {pol_selezionato_spese} calcolato! Addizionali raddoppiate per i 40' e spese d'imbarco fisse applicate.")
+            st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
 
@@ -317,13 +315,10 @@ with tab_manuale_singolo:
                 st.success("Tariffa spot salvata correttamente!")
                 st.rerun()
 
-# ==========================================
-# TAB 5: ARCHIVIO E MANUTENZIONE DATABASE
-# ==========================================
 with tab_database:
     st.header("Visualizzazione Tabellare di Controllo (Dati nel CSV)")
     st.dataframe(df_master, use_container_width=True)
-    if st.button("🗑 Impegnati a Svuotare l'Intero Database"):
+    if st.button("🗑 Svuota Intero Database"):
         if os.path.exists(DB_FILE):
             os.remove(DB_FILE)
         st.rerun()
