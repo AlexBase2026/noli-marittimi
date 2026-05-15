@@ -117,7 +117,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: MULTI-PARSER CON FILTRO RIGIDO .ILOC[0]
+# TAB 2: MULTI-PARSER CORRETTO (.ILOC[0])
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -161,42 +161,77 @@ with tab_automatico:
                 
                 dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                 
-                for idx, row in dati_prezzi.iterrows():
-                    if len(row.values) == 0: continue
-                    # CORREZIONE CRITICA: Estrazione sicura della sola cella della colonna A tramite iloc[0]
-                    cella_a_pura = row.iloc[0]
-                    if pd.isna(cella_a_pura) or str(cella_a_pura).strip() == "": continue
-                    
-                    testo_colonna_a = str(cella_a_pura).strip().upper()
-                    if "ALL CARGO" in testo_colonna_a or "MANGALORE" in testo_colonna_a or "SUBJECT TO" in testo_colonna_a or "P.O.D." in testo_colonna_a or "CURRENCY" in testo_colonna_a:
-                        continue
-                    
-                    for col_idx in range(1, len(row)):
-                        prezzo_raw = row.iloc[col_idx]
-                        try:
-                            price = float(prezzo_raw)
-                            if pd.isna(price) or price <= 0: continue
-                        except:
+                # ----------------------------------------------------------------------
+                # A. PARSER PER TRADE VERTICALI EXPORT STANDARD (IPBC, RED SEA, EAF)
+                # ----------------------------------------------------------------------
+                if trade_file in ["IPBC", "RED SEA", "EAF"]:
+                    for idx, row in dati_prezzi.iterrows():
+                        if len(row.values) == 0: continue
+                        # MODIFICA: Puntamento corretto alla cella indice 0
+                        cella_a_pura = row.iloc[0]
+                        if pd.isna(cella_a_pura) or str(cella_a_pura).strip() == "": continue
+                        
+                        testo_colonna_a = str(cella_a_pura).strip().upper()
+                        if "ALL CARGO" in testo_colonna_a or "MANGALORE" in testo_colonna_a or "SUBJECT TO" in testo_colonna_a or "P.O.D." in testo_colonna_a or "CURRENCY" in testo_colonna_a:
                             continue
                         
-                        container_std = "20FT" if (col_idx % 2 != 0) else "40FT"
+                        pol = normalizza_stringa_porto(cella_a_pura)
                         
-                        if trade_file in ["MIDDLE EAST", "FAR EAST"]:
-                            pol = riga_porti_alta_pulita[col_idx]
-                            pod = testo_colonna_a
-                        else:
-                            pol = normalizza_stringa_porto(cella_a_pura)
+                        for col_idx in range(1, len(row)):
+                            prezzo_raw = row.iloc[col_idx]
+                            try:
+                                price = float(prezzo_raw)
+                                if pd.isna(price) or price <= 0: continue
+                            except:
+                                continue
+                            
                             pod = riga_porti_alta_pulita[col_idx]
+                            container_std = "20FT" if (col_idx % 2 != 0) else "40FT"
+                            if pol == "SCONOSCIUTO" or pod == "SCONOSCIUTO": continue
+                            
+                            lista_tariffe.append({
+                                "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
+                                "Nolo": price, "Valuta_Nolo": valuta_matrice_std,
+                                "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
+                                "Totale_Nolo": price, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Listino {trade_file}", "Origine": "Automatico"
+                            })
+                            
+                # ----------------------------------------------------------------------
+                # B. PARSER PER TRADE ORIZZONTALI INVERTITI (MIDDLE EAST, FAR EAST)
+                # ----------------------------------------------------------------------
+                else:
+                    for idx, row in dati_prezzi.iterrows():
+                        if len(row.values) == 0: continue
+                        # MODIFICA: Puntamento corretto alla cella indice 0
+                        cella_a_pura = row.iloc[0]
+                        if pd.isna(cella_a_pura) or str(cella_a_pura).strip() == "": continue
                         
-                        if pol == "SCONOSCIUTO" or pod == "SCONOSCIUTO": continue
+                        testo_colonna_a = str(cella_a_pura).strip().upper()
+                        if "ALL CARGO" in testo_colonna_a or "MANGALORE" in testo_colonna_a or "SUBJECT TO" in testo_colonna_a or "P.O.D." in testo_colonna_a or "CURRENCY" in testo_colonna_a:
+                            continue
                         
-                        lista_tariffe.append({
-                            "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
-                            "Nolo": price, "Valuta_Nolo": valuta_matrice_std,
-                            "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
-                            "Totale_Nolo": price, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
-                            "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Listino {trade_file}", "Origine": "Automatico"
-                        })
+                        pod = testo_colonna_a
+                        
+                        for col_idx in range(1, len(row)):
+                            prezzo_raw = row.iloc[col_idx]
+                            try:
+                                price = float(prezzo_raw)
+                                if pd.isna(price) or price <= 0: continue
+                            except:
+                                continue
+                            
+                            pol = riga_porti_alta_pulita[col_idx]
+                            container_std = "20FT" if (col_idx % 2 != 0) else "40FT"
+                            if pol == "SCONOSCIUTO" or pod == "SCONOSCIUTO": continue
+                            
+                            lista_tariffe.append({
+                                "POL": pol, "POD": pod, "Compagnia": compagnia_file, "Trade": trade_file, "Container": container_std,
+                                "Nolo": price, "Valuta_Nolo": valuta_matrice_std,
+                                "Addizionali": 0.0, "Valuta_Addizionali": valuta_matrice_std, "Descrizione_Addizionali": "Nessuna surcharge", 
+                                "Totale_Nolo": price, "Spese_Imbarco": 0.0, "Valuta_Spese_Imbarco": "EUR", "Descrizione_Spese_Imbarco": "Nessuna spesa locale", 
+                                "BL": 0.0, "Free_Time": "", "Validità": validita_foglio, "Note": f"Listino {trade_file}", "Origine": "Automatico"
+                            })
                 
                 df_nuovo = pd.DataFrame(lista_tariffe)
                 if not df_nuovo.empty:
@@ -281,7 +316,7 @@ with tab_spese_porto:
                     df_modificato.loc[condizione, "Note"] = str(val_note_libere)
                     df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
             salva_database(df_modificato)
-            st.success(f"Configurazione completata per POL {pol_selezionato_spese} - Trade {trade_selezionato_spese}!")
+            st.success(f"Configurazione completata per POL {pol_selezionato_spese}!")
             st.rerun()
 
 # ==========================================
@@ -346,4 +381,3 @@ with tab_database:
     st.dataframe(df_master, use_container_width=True)
     if st.button("🗑 Svuota Intero Database"):
         if os.path.exists(DB_FILE): os.remove(DB_FILE)
-        st.rerun()
