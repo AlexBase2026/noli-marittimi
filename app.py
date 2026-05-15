@@ -95,7 +95,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: CARICAMENTO MATRICE EXCEL
+# TAB 2: CARICAMENTO MATRICE EXCEL (CORRETTO)
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Automatica Noli Base da Matrice")
@@ -136,7 +136,10 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 for _, row in dati_prezzi.iterrows():
-                    pol_raw = row.values if len(row.values) > 0 else None
+                    # CORREZIONE CRITICA: Estrazione sicura della sola cella del porto POL (indice 0)
+                    if len(row.values) == 0:
+                        continue
+                    pol_raw = row.values[0]
                     if pd.isna(pol_raw) or pol_raw is None:
                         continue
                     
@@ -158,7 +161,7 @@ with tab_automatico:
                         tipi_da_generare = ["20FT"] if "20" in tipo_c_raw else ["40FT", "40HC"]
                         
                         if "(" in pod:
-                            pod = pod.split("(").strip()
+                            pod = pod.split("(")[0].strip()
                             
                         for container_std in tipi_da_generare:
                             lista_tariffe.append({
@@ -180,12 +183,10 @@ with tab_automatico:
             st.error(f"Errore durante l'estrazione: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO CON LOGICA MOLTIPLICATORI 40FT/HC
+# TAB 3: GESTIONE SPESE PORTO MOLTIPLICATORI
 # ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
-    st.write("Inserisci i valori relativi al 20FT. Il sistema calcolerà in automatico i 40FT e 40HC (Imbarco fisso, Addizionali raddoppiate).")
-    
     if not df_master.empty:
         lista_pol_esistenti = [p for p in sorted(df_master["POL"].unique()) if str(p).strip() != ""]
         pol_selezionato_spese = st.selectbox("Seleziona il Porto di Partenza (POL) da valorizzare", lista_pol_esistenti)
@@ -220,20 +221,15 @@ with tab_spese_porto:
         if st.button(f"Calcola Automatismi e Applica a {pol_selezionato_spese}"):
             df_modificato = df_master.copy()
             
-            # --- LOGICA APPLICAZIONE AUTOMATICA DIVISA PER CONTAINER ---
             for tipo_c in ["20FT", "40FT", "40HC"]:
                 condizione = (df_modificato["POL"] == pol_selezionato_spese) & (df_modificato["Container"] == tipo_c)
                 
                 if not df_modificato[condizione].empty:
-                    # Regola: 20FT mantiene i valori base, 40FT/HC raddoppiano le addizionali, imbarco resta uguale
                     moltiplicatore_add = 1.0 if tipo_c == "20FT" else 2.0
-                    
                     imb_riga = totale_imb_calcolato
                     add_riga = totale_add_calcolato * moltiplicatore_add
                     
-                    # Generazione delle stringhe descrittive specifiche per tipo container
                     testo_imb = f"THC:{v_thc} | ISPS:{v_isps} | LILO:{v_lilo}"
-                    
                     lista_add_descr = []
                     if v_efs > 0: lista_add_descr.append(f"EFS:{v_efs * moltiplicatore_add}")
                     if v_brc > 0: lista_add_descr.append(f"BRC:{v_brc * moltiplicatore_add}")
@@ -242,7 +238,6 @@ with tab_spese_porto:
                     if v_feu > 0: lista_add_descr.append(f"FEU:{v_feu * moltiplicatore_add}")
                     testo_add = " + ".join(lista_add_descr) if lista_add_descr else "Nessuna surcharge"
                     
-                    # Salvataggio dati differenziati per riga nel CSV
                     df_modificato.loc[condizione, "Spese_Imbarco"] = float(imb_riga)
                     df_modificato.loc[condizione, "Descrizione_Spese_Imbarco"] = str(testo_imb)
                     df_modificato.loc[condizione, "Valuta_Spese_Imbarco"] = str(curr_imb_std)
@@ -257,7 +252,7 @@ with tab_spese_porto:
                     df_modificato.loc[condizione, "Totale_Nolo"] = df_modificato.loc[condizione, "Nolo"] + float(add_riga)
             
             salva_database(df_modificato)
-            st.success(f"Porto di {pol_selezionato_spese} calcolato! Addizionali raddoppiate per i 40' e spese d'imbarco fisse applicate.")
+            st.success("Database aggiornato applicando il raddoppio automatico sui container da 40FT/HC!")
             st.rerun()
     else:
         st.info("Nessun dato di nolo base presente. Esegui prima l'importazione nel Tab 1.")
