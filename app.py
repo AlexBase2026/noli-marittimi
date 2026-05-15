@@ -6,9 +6,9 @@ from datetime import datetime
 # Configurazione iniziale dell'interfaccia web aziendale
 st.set_page_config(page_title="Tariffario Noli Marittimi", layout="wide", page_icon="🚢")
 
-DB_FILE = "database_noli_avanzato.csv"
+DB_FILE = "database_noli_avanzato_v2.csv"
 
-# Funzione per caricare il database centrale con le nuove colonne
+# Funzione per caricare il database centrale con le nuove colonne descrittive
 def carica_database():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
@@ -17,8 +17,9 @@ def carica_database():
     else:
         return pd.DataFrame(columns=[
             "POL", "POD", "Compagnia", "Container", 
-            "Nolo", "Addizionali", "Totale_Nolo", 
-            "Spese_Imbarco", "Free_Time", "Validità", "Origine"
+            "Nolo", "Addizionali", "Descrizione_Addizionali", "Totale_Nolo", 
+            "Spese_Imbarco", "Descrizione_Spese_Imbarco", "Free_Time", 
+            "Validità", "Note", "Origine"
         ])
 
 # Funzione per salvare i dati nel database
@@ -29,7 +30,7 @@ df_master = carica_database()
 
 # --- INTERFACCIA GRAFICA ---
 st.title("🚢 Sistema Condiviso Ricerca Noli Marittimi")
-st.write("Strumento aziendale centralizzato per la consultazione delle tariffe con calcolo automatico dei costi.")
+st.write("Strumento aziendale centralizzato per la consultazione delle tariffe con dettagli descrittivi.")
 
 # Creazione dei Tab per separare le funzioni
 tab_ricerca, tab_automatico, tab_manuale, tab_database = st.tabs([
@@ -43,7 +44,7 @@ tab_ricerca, tab_automatico, tab_manuale, tab_database = st.tabs([
 # TAB 1: INTERFACCIA DI RICERCA COMPLETA
 # ==========================================
 with tab_ricerca:
-    st.header("Cerca la migliore quotazione e calcola il totale")
+    st.header("Cerca la migliore quotazione e visualizza i dettagli")
     
     col1, col2, col3 = st.columns(3)
     
@@ -61,7 +62,7 @@ with tab_ricerca:
     if pol_scelto and pod_scelto:
         oggi = datetime.now().date()
         
-        # Filtra i dati in base alle scelte dell'utente (POL, POD, Tipo Container e Validità attiva)
+        # Filtra i dati attivi
         risultati = df_master[
             (df_master["POL"] == pol_scelto) & 
             (df_master["POD"] == pod_scelto) & 
@@ -72,13 +73,14 @@ with tab_ricerca:
         if not risultati.empty:
             st.success(f"Trovate {len(risultati)} opzioni valide per container {tipo_container} da {pol_scelto} a {pod_scelto}:")
             
-            # Ordina automaticamente dal Totale Nolo più basso al più alto
-            risultati_ordinati = resultados = risultati.sort_values(by="Totale_Nolo")
+            # Ordina dal Totale Nolo più basso
+            risultati_ordinati = risultati.sort_values(by="Totale_Nolo")
             
-            # Formatta la visualizzazione delle colonne economiche
+            # Tabella completa di tutte le nuove colonne descrittive
             mostra_tabella = risultati_ordinati[[
-                "Compagnia", "Nolo", "Addizionali", "Totale_Nolo", 
-                "Spese_Imbarco", "Free_Time", "Validità", "Origine"
+                "Compagnia", "Nolo", "Addizionali", "Descrizione_Addizionali", 
+                "Totale_Nolo", "Spese_Imbarco", "Descrizione_Spese_Imbarco", 
+                "Free_Time", "Validità", "Note", "Origine"
             ]].copy()
             
             st.dataframe(
@@ -91,16 +93,16 @@ with tab_ricerca:
                 use_container_width=True
             )
         else:
-            st.warning("Nessuna tariffa attiva trovata per questa esatta combinazione di porti e tipo container.")
+            st.warning("Nessuna tariffa attiva trovata per questa combinazione.")
     else:
-        st.info("Seleziona un porto di partenza e uno di destinazione per visualizzare i dettagli dei costi.")
+        st.info("Seleziona un porto di partenza e uno di destinazione per visualizzare i dettagli.")
 
 # ==========================================
 # TAB 2: AGGIORNAMENTO AUTOMATICO VIA EXCEL
 # ==========================================
 with tab_automatico:
     st.header("Caricamento listini Excel Compagnie")
-    st.write("Trascina qui il file della compagnia. Il sistema applicherà il calcolo automatico del Totale Nolo.")
+    st.write("I campi descrittivi verranno impostati automaticamente se presenti nel file Excel.")
     
     compagnia_file = st.selectbox("Seleziona la compagnia del file", ["MSC", "CMA", "HAPAG"])
     file_caricato = st.file_uploader("Scegli un file Excel o CSV", type=["xlsx", "xls", "csv"])
@@ -115,17 +117,19 @@ with tab_automatico:
                 
                 df_standard = pd.DataFrame()
                 
-                # --- STRUTTURA DI PARSING DELLE COMPAGNIE ---
-                # NOTA: I nomi delle colonne tra virgolette (es. 'Nolo_Base') vanno adattati a come sono scritti nei tuoi file Excel reali.
+                # Mappatura delle colonne (adatta le stringhe interne ai tuoi file reali)
                 if compagnia_file == "MSC":
                     df_standard["POL"] = df_nuovo["Port_Loading"].astype(str).str.upper().str.strip()
                     df_standard["POD"] = df_nuovo["Port_Destination"].astype(str).str.upper().str.strip()
                     df_standard["Container"] = df_nuovo["Equipment_Type"].astype(str).str.upper().str.strip()
                     df_standard["Nolo"] = pd.to_numeric(df_nuovo["Ocean_Freight"], errors='coerce').fillna(0.0)
                     df_standard["Addizionali"] = pd.to_numeric(df_nuovo["Surcharges"], errors='coerce').fillna(0.0)
+                    df_standard["Descrizione_Addizionali"] = df_nuovo["Surcharges_Description"].astype(str).fillna("")
                     df_standard["Spese_Imbarco"] = pd.to_numeric(df_nuovo["Local_Charges"], errors='coerce').fillna(0.0)
+                    df_standard["Descrizione_Spese_Imbarco"] = df_nuovo["Local_Charges_Description"].astype(str).fillna("")
                     df_standard["Free_Time"] = df_nuovo["Free_Days"].astype(str)
                     df_standard["Validità"] = pd.to_datetime(df_nuovo["Expiry_Date"]).dt.date
+                    df_standard["Note"] = df_nuovo["Remarks"].astype(str).fillna("")
                     
                 elif compagnia_file == "CMA":
                     df_standard["POL"] = df_nuovo["POL_Code"].astype(str).str.upper().str.strip()
@@ -133,9 +137,12 @@ with tab_automatico:
                     df_standard["Container"] = df_nuovo["Size_Type"].astype(str).str.upper().str.strip()
                     df_standard["Nolo"] = pd.to_numeric(df_nuovo["Base_Rate"], errors='coerce').fillna(0.0)
                     df_standard["Addizionali"] = pd.to_numeric(df_nuovo["Surcharges"], errors='coerce').fillna(0.0)
+                    df_standard["Descrizione_Addizionali"] = df_nuovo["Surcharge_Details"].astype(str).fillna("")
                     df_standard["Spese_Imbarco"] = pd.to_numeric(df_nuovo["THC"], errors='coerce').fillna(0.0)
+                    df_standard["Descrizione_Spese_Imbarco"] = df_nuovo["THC_Details"].astype(str).fillna("")
                     df_standard["Free_Time"] = df_nuovo["Demurrage_Free_Time"].astype(str)
                     df_standard["Validità"] = pd.to_datetime(df_nuovo["Valid_To"]).dt.date
+                    df_standard["Note"] = df_nuovo["Notes"].astype(str).fillna("")
                     
                 elif compagnia_file == "HAPAG":
                     df_standard["POL"] = df_nuovo["Origin"].astype(str).str.upper().str.strip()
@@ -143,34 +150,35 @@ with tab_automatico:
                     df_standard["Container"] = df_nuovo["Type"].astype(str).str.upper().str.strip()
                     df_standard["Nolo"] = pd.to_numeric(df_nuovo["Freight"], errors='coerce').fillna(0.0)
                     df_standard["Addizionali"] = pd.to_numeric(df_nuovo["Add-ons"], errors='coerce').fillna(0.0)
+                    df_standard["Descrizione_Addizionali"] = df_nuovo["Add-ons_Comments"].astype(str).fillna("")
                     df_standard["Spese_Imbarco"] = pd.to_numeric(df_nuovo["Origin_THC"], errors='coerce').fillna(0.0)
+                    df_standard["Descrizione_Spese_Imbarco"] = df_nuovo["THC_Comments"].astype(str).fillna("")
                     df_standard["Free_Time"] = df_nuovo["Free_Time_Days"].astype(str)
                     df_standard["Validità"] = pd.to_datetime(df_nuovo["Expiration"]).dt.date
+                    df_standard["Note"] = df_nuovo["General_Notes"].astype(str).fillna("")
 
-                # CAMPO CALCOLATO AUTOMATICO: Somma di Nolo e Addizionali
                 df_standard["Totale_Nolo"] = df_standard["Nolo"] + df_standard["Addizionali"]
                 df_standard["Compagnia"] = compagnia_file
                 df_standard["Origine"] = "Automatico"
                 
                 df_standard = df_standard.dropna(subset=["POL", "POD", "Container"])
                 
-                # Sostituzione dei vecchi dati della stessa compagnia per evitare duplicati
                 df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                 df_finale = pd.concat([df_pulito_precedente, df_standard], ignore_index=True)
                 
                 salva_database(df_finale)
-                st.success(f"File importato! Elaborate {len(df_standard)} righe tariffarie per {compagnia_file}.")
+                st.success(f"File elaborato con successo per {compagnia_file}!")
                 st.rerun()
                 
             except Exception as e:
-                st.error(f"Errore nell'importazione automatica. Controlla la corrispondenza dei nomi delle colonne Excel. Dettaglio: {e}")
+                st.error(f"Errore durante l'elaborazione del file Excel. Dettaglio: {e}")
 
 # ==========================================
-# TAB 3: INSERIMENTO MANUALE CON NUOVI CAMPI
+# TAB 3: INSERIMENTO MANUALE DETTAGLIATO
 # ==========================================
 with tab_manuale:
-    st.header("Inserisci una singola tariffa dettagliata")
-    with st.form("Form Inserimento Avanzato"):
+    st.header("Inserisci una singola tariffa con descrizioni e note")
+    with st.form("Form Inserimento Dettagliato"):
         col_m1, col_m2, col_m3 = st.columns(3)
         
         with col_m1:
@@ -178,36 +186,37 @@ with tab_manuale:
             man_carrier = st.text_input("Compagnia (es. MSC)").upper().strip()
             man_nolo = st.number_input("Nolo Base (€)", min_value=0.0, step=50.0)
             man_spese = st.number_input("Spese Imbarco (€)", min_value=0.0, step=10.0)
+            man_desc_spese = st.text_input("Descrizione Spese Imbarco (es. THC + ISPS)")
             
         with col_m2:
             man_pod = st.text_input("Porto POD (Destinazione)").upper().strip()
             man_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"])
             man_addizionali = st.number_input("Addizionali (€)", min_value=0.0, step=10.0)
-            man_freetime = st.text_input("Free Time (es. 7 Giorni o Standard)")
+            man_desc_addizionali = st.text_input("Descrizione Add.li (es. BAF + GRI)")
+            man_freetime = st.text_input("Free Time (es. 14 giorni det+dem)")
             
         with col_m3:
-            st.write(" ")
-            st.write(" ")
             man_scadenza = st.date_input("Data Scadenza Validità")
+            man_note = st.text_area("Campo Note Libero (es. valido solo per merce IMO)", height=150)
             
         invia_form = st.form_submit_button("Salva Tariffa nel Database")
         
         if invia_form:
             if man_pol and man_pod and man_carrier:
-                # CAMPO CALCOLATO AUTOMATICO per inserimento manuale
                 totale_calcolato = man_nolo + man_addizionali
                 
                 nuova_riga = pd.DataFrame([{
                     "POL": man_pol, "POD": man_pod, "Compagnia": man_carrier,
                     "Container": man_container, "Nolo": man_nolo, 
-                    "Addizionali": man_addizionali, "Totale_Nolo": totale_calcolato,
-                    "Spese_Imbarco": man_spese, "Free_Time": man_freetime,
-                    "Validità": man_scadenza, "Origine": "Manuale"
+                    "Addizionali": man_addizionali, "Descrizione_Addizionali": man_desc_addizionali,
+                    "Totale_Nolo": totale_calcolato, "Spese_Imbarco": man_spese, 
+                    "Descrizione_Spese_Imbarco": man_desc_spese, "Free_Time": man_freetime,
+                    "Validità": man_scadenza, "Note": man_note, "Origine": "Manuale"
                 }])
                 
                 df_aggiornato = pd.concat([df_master, nuova_riga], ignore_index=True)
                 salva_database(df_aggiornato)
-                st.success(f"Tariffa salvata! Totale Nolo calcolato automaticamente: € {totale_calcolato:.2f}")
+                st.success(f"Tariffa salvata! Totale Nolo calcolato: € {totale_calcolato:.2f}")
                 st.rerun()
             else:
                 st.error("I campi POL, POD e Compagnia sono obbligatori.")
@@ -216,7 +225,7 @@ with tab_manuale:
 # TAB 4: ARCHIVIO E MANUTENZIONE DATABASE
 # ==========================================
 with tab_database:
-    st.header("Archivio Storico Completo di Tutti i Dati")
+    st.header("Archivio Storico Completo")
     if not df_master.empty:
         st.dataframe(df_master, use_container_width=True)
         if st.button("🗑️ Cancella l'intero Database (Reset Totale)"):
