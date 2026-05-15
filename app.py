@@ -51,7 +51,7 @@ DIZIONARIO_PORTI = {
 def normalizza_nome_porto(porto_raw):
     """Pulisce la stringa e sostituisce codici/sigle con il nome esteso della città"""
     testo = str(porto_raw).strip().upper()
-    if not testo or testo == "NAN":
+    if not testo or testo == "NAN" or testo == "NONE":
         return "SCONOSCIUTO"
     
     # Se il testo contiene spazi, prendiamo la prima parola (es. 'ITGOA by MD2' -> 'ITGOA')
@@ -97,7 +97,7 @@ def salva_database(df):
 
 df_master = carica_database()
 
-st.title("🚢 Sistema Multi-Parser Noli Marittimi con Geocodifica")
+st.title("Multi-Parser Noli Marittimi con Geocodifica")
 st.write("Software aziendale con conversione automatica delle sigle doganali nei nomi estesi delle città (es. ITGOA ➡️ GENOVA).")
 
 tab_ricerca, tab_automatico, tab_spese_porto, tab_manuale_singolo, tab_database = st.tabs([
@@ -164,7 +164,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: ARCHITETTURA MULTI-PARSER CON GEOCODIFICA
+# TAB 2: ARCHITETTURA MULTI-PARSER (BLINDATO CONTRO AMBIGUOUS ARRAY)
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -186,7 +186,7 @@ with tab_automatico:
                 lista_tariffe = []
                 
                 # --------------------------------------------------------
-                # PARSER LAYOUT 2: STRUTTURA INVERTITA (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK)
+                # PARSER LAYOUT 2: MATRICI ORIZZONTALI INVERTITE (CMA, COSCO, EVERGREEN, YML, ONE, MAERSK)
                 # --------------------------------------------------------
                 if compagnia_file in ["CMA", "COSCO", "EVERGREEN", "MAERSK", "ONE", "YML"]:
                     riga_container_idx = None
@@ -203,7 +203,6 @@ with tab_automatico:
                     riga_pod_pulita = []
                     
                     for v in riga_pod_raw:
-                        # Richiama la funzione di conversione automatica per il POD in colonna
                         pod_tradotto = normalizza_nome_porto(v)
                         riga_pod_pulita.append(pod_tradotto)
                     
@@ -212,11 +211,11 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_raw = row.values
-                        if pd.isna(pol_raw) or str(pol_raw).strip() == "": continue
+                        # CORREZIONE: Estrae in modo sicuro solo la cella d'indice 0 per evitare l'array ambiguo
+                        pol_cella = row.values[0]
+                        if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        # Richiama la funzione di conversione automatica per il POL in riga
-                        pol = normalizza_nome_porto(pol_raw)
+                        pol = normalizza_nome_porto(pol_cella)
                         if pol in ["", "CURRENCY", "PORT", "TOTAL", "NAN", "SCONOSCIUTO"]:
                             continue
                         
@@ -247,7 +246,7 @@ with tab_automatico:
                             })
                             
                 # --------------------------------------------------------
-                # PARSER LAYOUT 1: STRUTTURA STANDARD (MSC, HAPAG, MESSINA, ECC.)
+                # PARSER LAYOUT 1: STRUTTURA VERTICALE STANDARD (MSC, HAPAG, MESSINA, ECC.)
                 # --------------------------------------------------------
                 else:
                     riga_container_idx = None
@@ -270,10 +269,11 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        pol_raw = row.values
-                        if pd.isna(pol_raw): continue
+                        # CORREZIONE CRITICA: Estrae solo il valore d'indice 0 per evitare l'errore truth value array
+                        pol_cella = row.values[0]
+                        if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
-                        pol = normalizer = normalizza_nome_porto(pol_raw)
+                        pol = normalizza_nome_porto(pol_cella)
                         if pol in ["", "CURRENCY", "PORT", "MANGALORE", "SCONOSCIUTO"]:
                             continue
                         
@@ -303,7 +303,7 @@ with tab_automatico:
                     df_pulito_precedente = df_master[df_master["Compagnia"] != compagnia_file]
                     df_finale = pd.concat([df_pulito_precedente, df_nuovo_standard], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} noli con nomi porti tradotti in italiano per {compagnia_file}.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo_standard)} noli in archivio per {compagnia_file}.")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo rilevato. Verifica la formattazione dei campi.")
@@ -435,7 +435,6 @@ with tab_manuale_singolo:
                 testo_add_sin = f"EFS:{man_efs} BRC:{man_brc} ECA:{man_eca} ETS:{man_ets} FEU:{man_feu}"
                 testo_imb_sin = f"THC:{man_thc} | ISPS:{man_isps} | LILO:{man_lilo}"
                 
-                # Applica la normalizzazione anche per gli inserimenti manuali per sicurezza
                 pol_std = normalizza_nome_porto(man_pol)
                 pod_std = normalizza_nome_porto(man_pod)
                 
