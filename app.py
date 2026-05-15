@@ -47,7 +47,7 @@ with tab_ricerca:
         tipo_container = st.selectbox("Tipo Container", ["20FT", "40FT", "40HC"])
     if pol_scelto and pod_scelto:
         risultati = df_master[(df_master["POL"] == pol_scelto) & (df_master["POD"] == pod_scelto) & (df_master["Container"] == tipo_container)]
-        if not resultados.empty:
+        if not risultati.empty:
             st.dataframe(risultati.sort_values(by="Totale_Nolo"), use_container_width=True)
         else:
             st.warning("Nessuna tariffa trovata.")
