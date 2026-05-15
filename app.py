@@ -117,7 +117,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: MULTI-PARSER CON SINTASSI .ILOC[0] CORRETTA
+# TAB 2: MULTI-PARSER CORRETTO CON .ILOC[0]
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -163,7 +163,7 @@ with tab_automatico:
                 
                 for idx, row in dati_prezzi.iterrows():
                     if len(row.values) == 0: continue
-                    # CORREZIONE SINTASSICA: Puntiamo in modo nativo alla cella singola 0 tramite .iloc[0]
+                    # RISOLUZIONE: Utilizzo corretto dell'indice posizionale [0] della riga
                     cella_a_pura = row.iloc[0]
                     if pd.isna(cella_a_pura) or str(cella_a_pura).strip() == "": continue
                     
@@ -203,7 +203,7 @@ with tab_automatico:
                     df_pulito = df_master[(df_master["Compagnia"] != compagnia_file) | (df_master["Trade"] != trade_file)]
                     df_finale = pd.concat([df_pulito, df_nuovo], ignore_index=True)
                     salva_database(df_finale)
-                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} record commerciali per {compagnia_file} - Trade {trade_file}.")
+                    st.success(f"Estrazione completata! Caricati {len(df_nuovo)} record per {compagnia_file} - Trade {trade_file}.")
                     st.rerun()
                 else:
                     st.error("Nessun prezzo valido rilevato. Verifica la corrispondenza dei campi.")
@@ -337,7 +337,7 @@ with tab_manuale_singolo:
                     "Totale_Nolo": tot_nolo_sin, "Spese_Imbarco": tot_imb_sin, "Valuta_Spese_Imbarco": man_v_imb, "Descrizione_Spese_Imbarco": str(testo_imb_sin),
                     "BL": man_bl, "Free_Time": str(man_freetime), "Validità": str(man_validita), "Note": str(man_note), "Origine": "Manuale"
                 }])
-                salva_database(pd.concat([df_master, nuova_riga], ignore_index=True))
+                salva_database(pd.concat([df_master, nueva_riga], ignore_index=True))
                 st.success("Tariffa spot salvata correttamente!")
                 st.rerun()
 
