@@ -122,7 +122,7 @@ with tab_ricerca:
             st.warning("Nessuna tariffa corrispondente trovata.")
 
 # ==========================================
-# TAB 2: PARSER BLINDATO SULLA CELLA DI INDICE 0
+# TAB 2: PARSER CORRETTO SENZA KEYWORD ARGUMENTS
 # ==========================================
 with tab_automatico:
     st.header("Estrazione Intelligente con Parser Dedicati")
@@ -163,15 +163,15 @@ with tab_automatico:
                         val_str = str(v).strip()
                         if pd.notna(v) and val_str != "" and val_str.upper() != "NAN" and "ITALY" not in val_str.upper():
                             ultimo_porto_valido = normalizza_porto_msc(v)
-                        riga_porti_alta.append(ultimo_pod_valido = ultimo_porto_valido)
+                        # CORREZIONE: Sintassi dell'append pulita senza assegnazione interna
+                        riga_porti_alta.append(ultimo_porto_valido)
                     
                     riga_cont_pulita = [str(v).strip().upper() for v in raw_df.iloc[riga_container_idx]]
                     dati_prezzi = raw_df.iloc[riga_container_idx + 1:].copy()
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        # CORREZIONE: Estrae unicamente la cella d'indice 0 della riga
-                        pol_cella = row.values[0]
+                        pol_cella = row.values
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pod = normalizza_porto_msc(pol_cella)
@@ -230,8 +230,7 @@ with tab_automatico:
                     
                     for _, row in dati_prezzi.iterrows():
                         if len(row.values) == 0: continue
-                        # CORREZIONE CRITICA: Estrae unicamente la cella d'indice 0 della riga
-                        pol_cella = row.values[0]
+                        pol_cella = row.values
                         if pd.isna(pol_cella) or str(pol_cella).strip() == "": continue
                         
                         pol = normalizza_porto_msc(pol_cella)
@@ -272,7 +271,7 @@ with tab_automatico:
             st.error(f"Errore tecnico: {e}")
 
 # ==========================================
-# TAB 3: GESTIONE SPESE PORTO
+# TAB 3: GESTIONE SPESE PORTO MOLTIPLICATORI
 # ==========================================
 with tab_spese_porto:
     st.header("✍️ Inserimento Spese per Porto (Tariffazione basata su voci 20FT)")
